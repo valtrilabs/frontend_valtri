@@ -33,6 +33,8 @@ export default function Order() {
           if (payload.new.status === 'paid') {
             localStorage.removeItem('orderId');
             router.push('/blocked');
+          } else {
+            setOrder(payload.new); // Update order if items change
           }
         }
       )
@@ -40,6 +42,17 @@ export default function Order() {
 
     return () => supabase.removeChannel(subscription);
   }, [orderId, router]);
+
+  // Add more items
+  const addMoreItems = () => {
+    if (order && order.status === 'pending') {
+      localStorage.setItem('appendOrder', JSON.stringify({
+        orderId,
+        items: order.items,
+      }));
+      router.push(`/table/${order.table_id}`);
+    }
+  };
 
   if (loading) return <div className="text-center mt-10">Loading...</div>;
   if (!order) return <div className="text-center mt-10">Order not found</div>;
@@ -55,6 +68,14 @@ export default function Order() {
           ))}
         </ul>
         <p className="mt-4">Status: {order.status}</p>
+        {order.status === 'pending' && (
+          <button
+            className="mt-4 bg-blue-500 text-white px-4 py-2 rounded"
+            onClick={addMoreItems}
+          >
+            Add More Items
+          </button>
+        )}
       </div>
     </div>
   );

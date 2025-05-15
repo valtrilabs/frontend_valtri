@@ -8,21 +8,41 @@ export default function Table() {
   const [menu, setMenu] = useState([]);
   const [cart, setCart] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [isAppending, setIsAppending] = useState(false);
+  const [appendOrderId, setAppendOrderId] = useState(null);
 
   // Check if user has an active order
   useEffect(() => {
     const orderId = localStorage.getItem('orderId');
-    if (orderId) {
+    if (orderId && !localStorage.getItem('appendOrder')) {
       router.push(`/order/${orderId}`);
     }
   }, [router]);
 
-  // Fetch menu items
+  // Check for append order
+  useEffect(() => {
+    const appendOrder = localStorage.getItem('appendOrder');
+    if (appendOrder) {
+      const { orderId, items } = JSON.parse(appendOrder);
+      setCart(items);
+      setIsAppending(true);
+      setAppendOrderId(orderId);
+    }
+  }, []);
+
+  // Fetch menu items from backend
   useEffect(() => {
     async function fetchMenu() {
-      const { data } = await supabase.from('menu_items').select('*').eq('is_available', true);
-      setMenu(data);
-      setLoading(false);
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
+        const response = await fetch(`${apiUrl}/api/menu`);
+        const data = await response.json();
+        setMenu(data);
+        setLoading(false);
+      } catch (err) {
+        console.error('Fetch menu error:', err.message);
+        alert(`Failed to load menu: ${err.message}`);
+      }
     }
     fetchMenu();
   }, []);
@@ -32,7 +52,7 @@ export default function Table() {
     setCart([...cart, { item_id: item.id, name: item.name, price: item.price }]);
   };
 
-  // Place order
+  // Place new order
   const placeOrder = async () => {
     if (cart.length === 0) return alert('Cart is empty');
     setLoading(true);
@@ -44,7 +64,7 @@ export default function Table() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ table_id: parseInt(id), items: cart }),
-        signal: AbortSignal.timeout(30000), // 30s timeout
+        signal: AbortSignal.timeout(30000),
       });
       console.log('PlaceOrder - Response status:', response.status);
       const order = await response.json();
@@ -60,6 +80,40 @@ export default function Table() {
       setLoading(false);
       console.error('Fetch error:', err.message);
       alert(`Failed to place order: ${err.message}`);
+    }
+  };
+
+  // Update existing order
+  const updateOrder = async () => {
+    if (cart.length === 0) return alert('Cart is empty');
+    setLoading(true);
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
+      console.log('UpdateOrder - API URL:', `${apiUrl}/api/orders/${appendOrderId}`);
+      console.log('UpdateOrder - Payload:', JSON.stringify({ items: cart }));
+      const response = await fetch(`${apiUrl}/api/orders/${appendOrderId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: cart }),
+        signal: AbortSignal.timeout(30000),
+      });
+      console.log('UpdateOrder - Response status:', response.status);
+      const order = await response.json();
+      console.log('UpdateOrder - Response order:', order);
+      setLoading(false);
+      if (!response.ok || !order.id) {
+        console.error('Update error:', order.error || `HTTP ${response.status}`);
+        return alert(`Failed to update order: ${order.error || response.statusText}`);
+      }
+      localStorage.removeItem('appendOrder');
+      setIsAppending(false);
+      setAppendOrderId(null);
+      localStorage.setItem('orderId', order.id);
+      router.push(`/order/${order.id}`);
+    } catch (err) {
+      setLoading(false);
+      console.error('Fetch error:', err.message);
+      alert(`Failed to update order: ${err.message}`);
     }
   };
 
@@ -95,10 +149,10 @@ export default function Table() {
         )}
         <button
           className="mt-4 bg-blue-500 text-white px-4 py-2 rounded disabled:bg-gray-400"
-          onClick={placeOrder}
+          onClick={isAppending ? updateOrder : placeOrder}
           disabled={cart.length === 0 || loading}
         >
-          Place Order
+          {isAppending ? 'Update Order' : 'Place Order'}
         </button>
       </div>
     </div>
