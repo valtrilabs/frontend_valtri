@@ -10,11 +10,15 @@ export default function Admin() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [error, setError] = useState(null);
 
   // Check if admin is logged in
   useEffect(() => {
-    const session = supabase.auth.getSession();
-    if (session) setIsLoggedIn(true);
+    const checkSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) setIsLoggedIn(true);
+    };
+    checkSession();
   }, []);
 
   // Fetch pending orders
@@ -24,12 +28,13 @@ export default function Admin() {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
         console.log('Admin - Fetching orders from:', `${apiUrl}/api/admin/orders`);
         const response = await fetch(`${apiUrl}/api/admin/orders`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
         console.log('Admin - Orders response:', data);
         setOrders(data);
       } catch (err) {
         console.error('Admin - Fetch orders error:', err.message);
-        alert(`Failed to fetch orders: ${err.message}`);
+        setError(`Failed to fetch orders: ${err.message}`);
       }
     }
     if (isLoggedIn) fetchOrders();
@@ -38,17 +43,27 @@ export default function Admin() {
   // Fetch menu items
   useEffect(() => {
     async function fetchMenu() {
-      const { data } = await supabase.from('menu_items').select('*');
-      setMenuItems(data);
+      try {
+        const { data, error } = await supabase.from('menu_items').select('*');
+        if (error) throw error;
+        setMenuItems(data);
+      } catch (err) {
+        console.error('Admin - Fetch menu error:', err.message);
+        setError(`Failed to fetch menu: ${err.message}`);
+      }
     }
     if (isLoggedIn) fetchMenu();
   }, [isLoggedIn]);
 
   // Admin login
   const handleLogin = async () => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) return alert(error.message);
-    setIsLoggedIn(true);
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+      setIsLoggedIn(true);
+    } catch (err) {
+      alert(`Login failed: ${err.message}`);
+    }
   };
 
   // Mark order as paid
@@ -71,13 +86,17 @@ export default function Admin() {
   // Add new menu item
   const addMenuItem = async () => {
     if (!newItem.name || !newItem.price) return alert('Fill all fields');
-    const { data, error } = await supabase
-      .from('menu_items')
-      .insert([{ name: newItem.name, price: parseFloat(newItem.price), is_available: true }])
-      .select();
-    if (error) return alert(error.message);
-    setMenuItems([...menuItems, data[0]]);
-    setNewItem({ name: '', price: '' });
+    try {
+      const { data, error } = await supabase
+        .from('menu_items')
+        .insert([{ name: newItem.name, price: parseFloat(newItem.price), category: '', is_available: true }])
+        .select();
+      if (error) throw error;
+      setMenuItems([...menuItems, data[0]]);
+      setNewItem({ name: '', price: '' });
+    } catch (err) {
+      alert(`Failed to add item: ${err.message}`);
+    }
   };
 
   // Export orders
@@ -97,6 +116,7 @@ export default function Admin() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             className="border p-2 w-full mb-4"
+            aria-label="Email"
           />
           <input
             type="password"
@@ -104,10 +124,12 @@ export default function Admin() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             className="border p-2 w-full mb-4"
+            aria-label="Password"
           />
           <button
-            className="bg-blue-500 text-white px-4 py-2 rounded"
+            className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
             onClick={handleLogin}
+            aria-label="Login"
           >
             Login
           </button>
@@ -120,11 +142,13 @@ export default function Admin() {
     <div className="min-h-screen bg-gray-100 p-4">
       <h1 className="text-2xl font-bold mb-4">Admin Dashboard</h1>
       <button
-        className="mb-4 bg-red-500 text-white px-4 py-2 rounded"
+        className="mb-4 bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
         onClick={() => supabase.auth.signOut().then(() => setIsLoggedIn(false))}
+        aria-label="Logout"
       >
         Logout
       </button>
+      {error && <p className="text-red-500 mb-4" role="alert">{error}</p>}
       <div className="mb-6">
         <h2 className="text-xl font-bold">Pending Orders</h2>
         {orders.length === 0 ? (
@@ -136,12 +160,16 @@ export default function Admin() {
                 <p>Table {order.tables.number}</p>
                 <ul>
                   {order.items.map((item, index) => (
-                    <li key={index}>{item.name} - ${item.price.toFixed(2)}</li>
+                    <li key={index} className="flex justify-between">
+                      <span>{item.name}</span>
+                      <span>₹{item.price.toFixed(2)}</span>
+                    </li>
                   ))}
                 </ul>
                 <button
-                  className="mt-2 bg-green-500 text-white px-4 py-2 rounded"
+                  className="mt-2 bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
                   onClick={() => markAsPaid(order.id)}
+                  aria-label={`Mark order ${order.id} as paid`}
                 >
                   Mark as Paid
                 </button>
@@ -150,8 +178,9 @@ export default function Admin() {
           </div>
         )}
         <button
-          className="mt-4 bg-blue-500 text-white px-4 py-2 rounded"
+          className="mt-4 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
           onClick={exportOrders}
+          aria-label="Export orders as CSV"
         >
           Export Orders (CSV)
         </button>
@@ -165,6 +194,7 @@ export default function Admin() {
             value={newItem.name}
             onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
             className="border p-2 w-full mb-4"
+            aria-label="Item Name"
           />
           <input
             type="number"
@@ -172,10 +202,12 @@ export default function Admin() {
             value={newItem.price}
             onChange={(e) => setNewItem({ ...newItem, price: e.target.value })}
             className="border p-2 w-full mb-4"
+            aria-label="Price"
           />
           <button
-            className="bg-blue-500 text-white px-4 py-2 rounded"
+            className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
             onClick={addMenuItem}
+            aria-label="Add menu item"
           >
             Add Item
           </button>
@@ -183,7 +215,7 @@ export default function Admin() {
         <h3 className="mt-4 font-semibold">Current Menu</h3>
         {menuItems.map(item => (
           <div key={item.id} className="bg-white p-4 rounded shadow mt-2">
-            <p>{item.name} - ${item.price.toFixed(2)} ({item.is_available ? 'Available' : 'Unavailable'})</p>
+            <p>{item.name} - ₹{item.price.toFixed(2)} ({item.is_available ? 'Available' : 'Unavailable'})</p>
           </div>
         ))}
       </div>

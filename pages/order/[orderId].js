@@ -7,17 +7,24 @@ export default function Order() {
   const { orderId } = router.query;
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   // Fetch order details
   useEffect(() => {
     async function fetchOrder() {
-      const { data } = await supabase
-        .from('orders')
-        .select('*, tables(number)')
-        .eq('id', orderId)
-        .single();
-      setOrder(data);
-      setLoading(false);
+      try {
+        const { data, error } = await supabase
+          .from('orders')
+          .select('*, tables(number)')
+          .eq('id', orderId)
+          .single();
+        if (error) throw error;
+        setOrder(data);
+        setLoading(false);
+      } catch (err) {
+        setError('Failed to load order. Please try again.');
+        setLoading(false);
+      }
     }
     if (orderId) fetchOrder();
   }, [orderId]);
@@ -34,7 +41,7 @@ export default function Order() {
             localStorage.removeItem('orderId');
             router.push('/blocked');
           } else {
-            setOrder(payload.new); // Update order if items change
+            setOrder(payload.new);
           }
         }
       )
@@ -54,24 +61,38 @@ export default function Order() {
     }
   };
 
-  if (loading) return <div className="text-center mt-10">Loading...</div>;
-  if (!order) return <div className="text-center mt-10">Order not found</div>;
+  // Calculate total
+  const total = order?.items.reduce((sum, item) => sum + item.price, 0) || 0;
+
+  if (loading) return <div className="text-center mt-10" role="status">Loading order...</div>;
+  if (error) return <div className="text-center mt-10 text-red-500" role="alert">{error}</div>;
+  if (!order) return <div className="text-center mt-10" role="alert">Order not found</div>;
 
   return (
     <div className="min-h-screen bg-gray-100 p-4">
-      <h1 className="text-2xl font-bold mb-4">Order Summary - Table {order.tables.number}</h1>
-      <div className="bg-white p-4 rounded shadow">
-        <h2 className="font-semibold">Items</h2>
-        <ul>
+      <h1 className="text-2xl font-bold mb-4" aria-label={`Order Summary for Table ${order.tables.number}`}>
+        Order Summary - Table {order.tables.number}
+      </h1>
+      <div className="bg-white p-6 rounded-lg shadow">
+        <p className="text-green-600 font-semibold mb-4">
+          Thank you for ordering! Please wait 10 minutes for your order to arrive.
+        </p>
+        <h2 className="font-semibold text-lg mb-2">Items</h2>
+        <ul className="mb-4">
           {order.items.map((item, index) => (
-            <li key={index}>{item.name} - ${item.price.toFixed(2)}</li>
+            <li key={index} className="flex justify-between">
+              <span>{item.name}</span>
+              <span>₹{item.price.toFixed(2)}</span>
+            </li>
           ))}
         </ul>
+        <p className="font-semibold">Total: ₹{total.toFixed(2)}</p>
         <p className="mt-4">Status: {order.status}</p>
         {order.status === 'pending' && (
           <button
-            className="mt-4 bg-blue-500 text-white px-4 py-2 rounded"
+            className="mt-4 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
             onClick={addMoreItems}
+            aria-label="Add more items to order"
           >
             Add More Items
           </button>
