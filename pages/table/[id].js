@@ -37,7 +37,7 @@ export default function Table() {
     if (cart.length === 0) return alert('Cart is empty');
     setLoading(true);
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, ''); // Remove trailing slash
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
       console.log('PlaceOrder - API URL:', apiUrl);
       console.log('PlaceOrder - Payload:', JSON.stringify({ table_id: parseInt(id), items: cart }));
       const response = await fetch(`${apiUrl}/api/orders`, {
@@ -47,15 +47,15 @@ export default function Table() {
         signal: AbortSignal.timeout(30000), // 30s timeout
       });
       console.log('PlaceOrder - Response status:', response.status);
-      const { data, error } = await response.json();
-      console.log('PlaceOrder - Response data:', data, 'Error:', error);
+      const order = await response.json();
+      console.log('PlaceOrder - Response order:', order);
       setLoading(false);
-      if (error || !response.ok) {
-        console.error('Order error:', error || `HTTP ${response.status}`);
-        return alert(`Failed to place order: ${error || response.statusText}`);
+      if (!response.ok || !order.id) {
+        console.error('Order error:', order.error || `HTTP ${response.status}`);
+        return alert(`Failed to place order: ${order.error || response.statusText}`);
       }
-      localStorage.setItem('orderId', data.id);
-      router.push(`/order/${data.id}`);
+      localStorage.setItem('orderId', order.id);
+      router.push(`/order/${order.id}`);
     } catch (err) {
       setLoading(false);
       console.error('Fetch error:', err.message);
