@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ArrowDownIcon, ArrowUpIcon, PlusIcon, MinusIcon } from '@heroicons/react/24/outline';
+import { ArrowDownIcon, ArrowUpIcon, PlusIcon, MinusIcon, TrashIcon } from '@heroicons/react/24/outline';
 
 export default function BottomCart({ cart, setCart, onPlaceOrder, onClose, isOpen }) {
   const [isVisible, setIsVisible] = useState(isOpen);
@@ -29,6 +29,11 @@ export default function BottomCart({ cart, setCart, onPlaceOrder, onClose, isOpe
       newCart[itemIndex] = { ...newCart[itemIndex], quantity: newQuantity };
       return newCart;
     });
+  };
+
+  // Delete item
+  const deleteItem = (itemId) => {
+    setCart(prevCart => prevCart.filter(item => item.item_id !== itemId));
   };
 
   // Calculate total and item count
@@ -113,6 +118,13 @@ export default function BottomCart({ cart, setCart, onPlaceOrder, onClose, isOpe
                     aria-label={`Increase quantity of ${item.name}`}
                   >
                     <PlusIcon className="h-4 w-4" />
+                  </button>
+                  <button
+                    className="p-1 bg-red-100 rounded hover:bg-red-200"
+                    onClick={() => deleteItem(item.item_id)}
+                    aria-label={`Remove ${item.name} from cart`}
+                  >
+                    <TrashIcon className="h-4 w-4 text-red-600" />
                   </button>
                 </div>
               </div>

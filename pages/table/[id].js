@@ -16,6 +16,7 @@ export default function Table() {
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [error, setError] = useState(null);
+  const [animatingItem, setAnimatingItem] = useState(null);
 
   // Check if user has an active order
   useEffect(() => {
@@ -75,8 +76,10 @@ export default function Table() {
     }
   }, [fetchError]);
 
-  // Add to cart
+  // Add to cart with animation
   const addToCart = (item) => {
+    setAnimatingItem(item.id);
+    setTimeout(() => setAnimatingItem(null), 300); // Match animation duration
     setCart(prevCart => {
       const existingItem = prevCart.find(cartItem => cartItem.item_id === item.id);
       if (existingItem) {
@@ -163,7 +166,7 @@ export default function Table() {
 
   // Toggle cart visibility
   const toggleCart = () => {
-    setIsCartOpen(true);
+    setIsCartOpen(prev => !prev);
   };
 
   if (isLoading) return <div className="text-center mt-10" role="status">Loading menu...</div>;
@@ -176,7 +179,7 @@ export default function Table() {
         <button
           className="fixed top-4 right-4 bg-blue-500 text-white p-2 rounded-full shadow-lg hover:bg-blue-600 z-50"
           onClick={toggleCart}
-          aria-label="Open cart"
+          aria-label="Toggle cart"
         >
           <ShoppingCartIcon className="h-6 w-6" />
           <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
@@ -240,7 +243,9 @@ export default function Table() {
               <p className="text-sm text-gray-500">{item.category}</p>
               <p className="text-sm font-medium">₹{item.price.toFixed(2)}</p>
               <button
-                className="mt-2 w-full bg-green-500 text-white py-2 rounded-lg hover:bg-green-600"
+                className={`mt-2 w-full bg-green-500 text-white py-2 rounded-lg hover:bg-green-600 transition-transform duration-300 ${
+                  animatingItem === item.id ? 'scale-95' : ''
+                }`}
                 onClick={() => addToCart(item)}
                 aria-label={`Add ${item.name} to cart`}
               >
