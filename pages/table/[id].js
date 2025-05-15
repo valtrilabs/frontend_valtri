@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import useSWR from 'swr';
 import { supabase } from '../../lib/supabase';
+import BottomCart from '../../components/BottomCart';
+import { CakeIcon } from '@heroicons/react/24/outline';
 
 const fetcher = (url) => fetch(url).then(res => res.json());
 
@@ -12,7 +14,7 @@ export default function Table() {
   const [isAppending, setIsAppending] = useState(false);
   const [appendOrderId, setAppendOrderId] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState('All');
-  const [showCartModal, setShowCartModal] = useState(false);
+  const [isCartOpen, setIsCartOpen] = useState(false);
   const [error, setError] = useState(null);
 
   // Check if user has an active order
@@ -75,16 +77,30 @@ export default function Table() {
 
   // Add to cart
   const addToCart = (item) => {
-    const newCart = [...cart, { item_id: item.id, name: item.name, price: item.price, category: item.category }];
-    setCart(newCart);
-    setShowCartModal(true);
-    // Auto-close modal after 3 seconds
-    setTimeout(() => setShowCartModal(false), 3000);
+    setCart(prevCart => {
+      const existingItem = prevCart.find(cartItem => cartItem.item_id === item.id);
+      if (existingItem) {
+        return prevCart.map(cartItem =>
+          cartItem.item_id === item.id
+            ? { ...cartItem, quantity: (cartItem.quantity || 1) + 1 }
+            : cartItem
+        );
+      }
+      return [
+        ...prevCart,
+        {
+          item_id: item.id,
+          name: item.name,
+          price: item.price,
+          category: item.category,
+          image_url: item.image_url,
+          quantity: 1,
+        },
+      ];
+    });
+    setIsCartOpen(true);
     console.log('Analytics - Item added:', { item_id: item.id, name: item.name, timestamp: new Date().toISOString() });
   };
-
-  // Calculate total
-  const total = cart.reduce((sum, item) => sum + item.price, 0);
 
   // Place new order
   const placeOrder = async () => {
@@ -105,6 +121,8 @@ export default function Table() {
         throw new Error(order.error || `HTTP ${response.status}`);
       }
       localStorage.setItem('orderId', order.id);
+      setCart([]);
+      setIsCartOpen(false);
       router.push(`/order/${order.id}`);
     } catch (err) {
       console.error('PlaceOrder error:', err.message);
@@ -134,6 +152,8 @@ export default function Table() {
       setIsAppending(false);
       setAppendOrderId(null);
       localStorage.setItem('orderId', order.id);
+      setCart([]);
+      setIsCartOpen(false);
       router.push(`/order/${order.id}`);
     } catch (err) {
       console.error('UpdateOrder error:', err.message);
@@ -141,49 +161,67 @@ export default function Table() {
     }
   };
 
-  // Close modal with keyboard (Escape key)
-  useEffect(() => {
-    const handleEscape = (e) => {
-      if (e.key === 'Escape') setShowCartModal(false);
-    };
-    window.addEventListener('keydown', handleEscape);
-    return () => window.removeEventListener('keydown', handleEscape);
-  }, []);
-
   if (isLoading) return <div className="text-center mt-10" role="status">Loading menu...</div>;
   if (error) return <div className="text-center mt-10 text-red-500" role="alert">{error}</div>;
 
   return (
-    <div className="min-h-screen bg-gray-100 p-4">
-      <h1 className="text-2xl font-bold mb-4" aria-label={`Menu for Table ${id}`}>Table {id} - Menu</h1>
-
-      {/* Category Filters */}
-      <div className="flex flex-wrap gap-2 mb-4" role="tablist" aria-label="Menu categories">
-        {categories.map(category => (
-          <button
-            key={category}
-            className={`px-4 py-2 rounded ${selectedCategory === category ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700'}`}
-            onClick={() => setSelectedCategory(category)}
-            role="tab"
-            aria-selected={selectedCategory === category}
-            aria-controls="menu-items"
-          >
-            {category}
-          </button>
-        ))}
+    <div className="min-h-screen bg-gray-50 p-4">
+      {/* Welcome Message */}
+      <div className="flex items-center justify-center gap-2 mb-6">
+        <CakeIcon className="h-6 w-6 text-blue-500" />
+        <h1 className="text-2xl font-bold text-gray-800" aria-label="Welcome to Gsaheb Cafe">
+          Welcome to Gsaheb Cafe
+        </h1>
+        <CakeIcon className="h-6 w-6 text-blue-500" />
       </div>
 
-      {/* Menu Items */}
-      <div id="menu-items" className="grid gap-4" role="region" aria-live="polite">
+      {/* Category Filters */}
+      <div className="mb-6 overflow-x-auto whitespace-nowrap pb-2" role="tablist" aria-label="Menu categories">
+        <div className="flex gap-2">
+          {categories.map(category => (
+            <button
+              key={category}
+              className={`px-4 py-2 rounded-lg text-sm font-medium ${
+                selectedCategory === category
+                  ? 'bg-blue-500 text-white'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+              onClick={() => setSelectedCategory(category)}
+              role="tab"
+              aria-selected={selectedCategory === category}
+              aria-controls="menu-items"
+            >
+              {category}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Menu Items Grid */}
+      <div
+        id="menu-items"
+        className="grid grid-cols-2 md:grid-cols-3 gap-4"
+        role="region"
+        aria-live="polite"
+      >
         {filteredMenu?.length === 0 ? (
-          <p>No items in this category.</p>
+          <p className="col-span-full text-center text-gray-500">No items in this category.</p>
         ) : (
           filteredMenu.map(item => (
-            <div key={item.id} className="bg-white p-4 rounded shadow">
-              <h2 className="font-semibold">{item.name}</h2>
-              <p>₹{item.price.toFixed(2)}</p>
+            <div
+              key={item.id}
+              className="bg-white p-4 rounded-lg shadow-md hover:shadow-lg transition-shadow"
+            >
+              <img
+                src={item.image_url || 'https://images.unsplash.com/photo-1550547660-d9450f859349'}
+                alt={item.name}
+                className="w-full h-32 object-cover rounded-md mb-2"
+              />
+              <h2 className="font-semibold text-lg">{item.name}</h2>
+              <p className="text-sm text-gray-500">{item.category}</p>
+              <p className="text-sm font-medium">₹{item.price.toFixed(2)}</p>
               <button
-                className="mt-2 bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
+                className="mt-2 w-full bg-green-500 text-white py-2 rounded-lg hover:bg-green-600"
                 onClick={() => addToCart(item)}
                 aria-label={`Add ${item.name} to cart`}
               >
@@ -194,80 +232,14 @@ export default function Table() {
         )}
       </div>
 
-      {/* Cart Modal */}
-      {showCartModal && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Cart contents"
-        >
-          <div className="bg-white p-6 rounded-lg max-w-md w-full">
-            <h2 className="text-xl font-bold mb-4">Your Cart</h2>
-            {cart.length === 0 ? (
-              <p>Cart is empty</p>
-            ) : (
-              <>
-                <ul className="mb-4">
-                  {cart.map((item, index) => (
-                    <li key={index} className="flex justify-between">
-                      <span>{item.name}</span>
-                      <span>₹{item.price.toFixed(2)}</span>
-                    </li>
-                  ))}
-                </ul>
-                <p className="font-semibold">Total: ₹{total.toFixed(2)}</p>
-              </>
-            )}
-            <div className="flex justify-end gap-2 mt-4">
-              <button
-                className="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-600"
-                onClick={() => setShowCartModal(false)}
-                aria-label="Close cart"
-              >
-                Close
-              </button>
-              {cart.length > 0 && (
-                <button
-                  className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
-                  onClick={isAppending ? updateOrder : placeOrder}
-                  aria-label={isAppending ? 'Update order' : 'Place order'}
-                >
-                  {isAppending ? 'Update Order' : 'Place Order'}
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Cart Summary */}
-      <div className="mt-6 sticky bottom-0 bg-white p-4 rounded shadow">
-        <h2 className="text-xl font-bold">Cart</h2>
-        {cart.length === 0 ? (
-          <p>Cart is empty</p>
-        ) : (
-          <>
-            <ul className="mb-2">
-              {cart.map((item, index) => (
-                <li key={index} className="flex justify-between">
-                  <span>{item.name}</span>
-                  <span>₹{item.price.toFixed(2)}</span>
-                </li>
-              ))}
-            </ul>
-            <p className="font-semibold">Total: ₹{total.toFixed(2)}</p>
-            <button
-              className="mt-4 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 disabled:bg-gray-400"
-              onClick={isAppending ? updateOrder : placeOrder}
-              disabled={cart.length === 0}
-              aria-label={isAppending ? 'Update order' : 'Place order'}
-            >
-              {isAppending ? 'Update Order' : 'Place Order'}
-            </button>
-          </>
-        )}
-      </div>
+      {/* Bottom Cart */}
+      <BottomCart
+        cart={cart}
+        setCart={setCart}
+        onPlaceOrder={isAppending ? updateOrder : placeOrder}
+        onClose={() => setIsCartOpen(false)}
+        isOpen={isCartOpen}
+      />
     </div>
   );
 }
