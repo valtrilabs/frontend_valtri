@@ -51,20 +51,20 @@ export default function Admin() {
     setIsLoggedIn(true);
   };
 
-  // Mark order as delivered
-  const markAsDelivered = async (orderId) => {
+  // Mark order as paid
+  const markAsPaid = async (orderId) => {
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
-      console.log('Admin - Marking order as delivered:', `${apiUrl}/api/orders/${orderId}/deliver`);
-      const response = await fetch(`${apiUrl}/api/orders/${orderId}/deliver`, { method: 'PATCH' });
+      console.log('Admin - Marking order as paid:', `${apiUrl}/api/orders/${orderId}/pay`);
+      const response = await fetch(`${apiUrl}/api/orders/${orderId}/pay`, { method: 'PATCH' });
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
-      console.log('Admin - Order marked as delivered:', orderId);
+      console.log('Admin - Order marked as paid:', orderId);
       setOrders(orders.filter(order => order.id !== orderId));
     } catch (err) {
-      console.error('Admin - Mark as delivered error:', err.message);
-      alert(`Failed to mark order as delivered: ${err.message}`);
+      console.error('Admin - Mark as paid error:', err.message);
+      alert(`Failed to mark order as paid: ${err.message}`);
     }
   };
 
@@ -136,14 +136,14 @@ export default function Admin() {
                 <p>Table {order.tables.number}</p>
                 <ul>
                   {order.items.map((item, index) => (
-                    <li key={index}>{item.name} - ₹{item.price.toFixed(2)}</li>
+                    <li key={index}>{item.name} - ${item.price.toFixed(2)}</li>
                   ))}
                 </ul>
                 <button
                   className="mt-2 bg-green-500 text-white px-4 py-2 rounded"
-                  onClick={() => markAsDelivered(order.id)}
+                  onClick={() => markAsPaid(order.id)}
                 >
-                  Mark as Delivered
+                  Mark as Paid
                 </button>
               </div>
             ))}
@@ -183,7 +183,7 @@ export default function Admin() {
         <h3 className="mt-4 font-semibold">Current Menu</h3>
         {menuItems.map(item => (
           <div key={item.id} className="bg-white p-4 rounded shadow mt-2">
-            <p>{item.name} - ₹{item.price.toFixed(2)} ({item.is_available ? 'Available' : 'Unavailable'})</p>
+            <p>{item.name} - ${item.price.toFixed(2)} ({item.is_available ? 'Available' : 'Unavailable'})</p>
           </div>
         ))}
       </div>

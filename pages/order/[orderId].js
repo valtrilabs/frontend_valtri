@@ -30,11 +30,11 @@ export default function Order() {
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'orders', filter: `id=eq.${orderId}` },
         payload => {
-          if (payload.new.status === 'delivered') {
+          if (payload.new.status === 'paid') {
             localStorage.removeItem('orderId');
             router.push('/blocked');
           } else {
-            setOrder(payload.new);
+            setOrder(payload.new); // Update order if items change
           }
         }
       )
@@ -64,7 +64,7 @@ export default function Order() {
         <h2 className="font-semibold">Items</h2>
         <ul>
           {order.items.map((item, index) => (
-            <li key={index}>{item.name} - ₹{item.price.toFixed(2)}</li>
+            <li key={index}>{item.name} - ${item.price.toFixed(2)}</li>
           ))}
         </ul>
         <p className="mt-4">Status: {order.status}</p>
