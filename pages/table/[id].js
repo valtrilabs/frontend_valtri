@@ -16,7 +16,7 @@ export default function Table() {
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [error, setError] = useState(null);
-  const [animatingItem, setAnimatingItem] = useState(null);
+  const [addedItems, setAddedItems] = useState({}); // Track items showing "Added"
 
   // Check if user has an active order
   useEffect(() => {
@@ -76,10 +76,12 @@ export default function Table() {
     }
   }, [fetchError]);
 
-  // Add to cart with animation
+  // Add to cart with text flash
   const addToCart = (item) => {
-    setAnimatingItem(item.id);
-    setTimeout(() => setAnimatingItem(null), 300); // Match animation duration
+    setAddedItems(prev => ({ ...prev, [item.id]: true }));
+    setTimeout(() => {
+      setAddedItems(prev => ({ ...prev, [item.id]: false }));
+    }, 1000); // Show "Added" for 1 second
     setCart(prevCart => {
       const existingItem = prevCart.find(cartItem => cartItem.item_id === item.id);
       if (existingItem) {
@@ -243,13 +245,15 @@ export default function Table() {
               <p className="text-sm text-gray-500">{item.category}</p>
               <p className="text-sm font-medium">₹{item.price.toFixed(2)}</p>
               <button
-                className={`mt-2 w-full bg-green-500 text-white py-2 rounded-lg hover:bg-green-600 transition-transform duration-300 ${
-                  animatingItem === item.id ? 'scale-95' : ''
+                className={`mt-2 w-full py-2 rounded-lg text-white transition-colors duration-300 ${
+                  addedItems[item.id]
+                    ? 'bg-blue-500 hover:bg-blue-600'
+                    : 'bg-green-500 hover:bg-green-600'
                 }`}
                 onClick={() => addToCart(item)}
-                aria-label={`Add ${item.name} to cart`}
+                aria-label={addedItems[item.id] ? `${item.name} added to cart` : `Add ${item.name} to cart`}
               >
-                Add to Cart
+                {addedItems[item.id] ? 'Added' : 'Add to Cart'}
               </button>
             </div>
           ))
