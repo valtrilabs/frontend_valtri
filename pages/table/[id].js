@@ -33,18 +33,42 @@ export default function Table() {
   };
 
   // Place order
+  // const placeOrder = async () => {
+  //   if (cart.length === 0) return alert('Cart is empty');
+  //   setLoading(true);
+  //   const { data, error } = await fetch('/api/orders', {
+  //     method: 'POST',
+  //     headers: { 'Content-Type': 'application/json' },
+  //     body: JSON.stringify({ table_id: parseInt(id), items: cart }),
+  //   }).then(res => res.json());
+  //   setLoading(false);
+  //   if (error) return alert(error);
+  //   localStorage.setItem('orderId', data.id);
+  //   router.push(`/order/${data.id}`);
+  // };
+
   const placeOrder = async () => {
     if (cart.length === 0) return alert('Cart is empty');
     setLoading(true);
-    const { data, error } = await fetch('/api/orders', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ table_id: parseInt(id), items: cart }),
-    }).then(res => res.json());
-    setLoading(false);
-    if (error) return alert(error);
-    localStorage.setItem('orderId', data.id);
-    router.push(`/order/${data.id}`);
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/orders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ table_id: parseInt(id), items: cart }),
+      });
+      const { data, error } = await response.json();
+      setLoading(false);
+      if (error || !response.ok) {
+        console.error('Order error:', error || `HTTP ${response.status}`);
+        return alert(`Failed to place order: ${error || response.statusText}`);
+      }
+      localStorage.setItem('orderId', data.id);
+      router.push(`/order/${data.id}`);
+    } catch (err) {
+      setLoading(false);
+      console.error('Fetch error:', err.message);
+      alert(`Failed to place order: ${err.message}`);
+    }
   };
 
   if (loading) return <div className="text-center mt-10">Loading...</div>;
