@@ -3,7 +3,7 @@ import { useRouter } from 'next/router';
 import useSWR from 'swr';
 import { supabase } from '../../lib/supabase';
 import BottomCart from '../../components/BottomCart';
-import { CakeIcon } from '@heroicons/react/24/outline';
+import { CakeIcon, ShoppingCartIcon } from '@heroicons/react/24/outline';
 
 const fetcher = (url) => fetch(url).then(res => res.json());
 
@@ -161,11 +161,30 @@ export default function Table() {
     }
   };
 
+  // Toggle cart visibility
+  const toggleCart = () => {
+    setIsCartOpen(true);
+  };
+
   if (isLoading) return <div className="text-center mt-10" role="status">Loading menu...</div>;
   if (error) return <div className="text-center mt-10 text-red-500" role="alert">{error}</div>;
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4">
+    <div className="min-h-screen bg-gray-50 p-4 relative">
+      {/* Top-Right Cart Icon */}
+      {cart.length > 0 && (
+        <button
+          className="fixed top-4 right-4 bg-blue-500 text-white p-2 rounded-full shadow-lg hover:bg-blue-600 z-50"
+          onClick={toggleCart}
+          aria-label="Open cart"
+        >
+          <ShoppingCartIcon className="h-6 w-6" />
+          <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+            {cart.reduce((sum, item) => sum + (item.quantity || 1), 0)}
+          </span>
+        </button>
+      )}
+
       {/* Welcome Message */}
       <div className="flex items-center justify-center gap-2 mb-6">
         <CakeIcon className="h-6 w-6 text-blue-500" />
