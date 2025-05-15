@@ -17,10 +17,32 @@ export default function Table() {
 
   // Check if user has an active order
   useEffect(() => {
-    const orderId = localStorage.getItem('orderId');
-    if (orderId && !localStorage.getItem('appendOrder')) {
-      router.push(`/order/${orderId}`);
+    async function checkActiveOrder() {
+      const orderId = localStorage.getItem('orderId');
+      if (orderId && !localStorage.getItem('appendOrder')) {
+        try {
+          const { data, error } = await supabase
+            .from('orders')
+            .select('id, status')
+            .eq('id', orderId)
+            .single();
+          if (error || !data) {
+            console.log('Invalid orderId, clearing localStorage:', orderId);
+            localStorage.removeItem('orderId');
+            return;
+          }
+          if (data.status === 'pending') {
+            router.push(`/order/${orderId}`);
+          } else {
+            localStorage.removeItem('orderId');
+          }
+        } catch (err) {
+          console.error('Error checking order:', err.message);
+          localStorage.removeItem('orderId');
+        }
+      }
     }
+    checkActiveOrder();
   }, [router]);
 
   // Check for append order

@@ -12,25 +12,36 @@ export default function Order() {
   // Fetch order details
   useEffect(() => {
     async function fetchOrder() {
+      if (!orderId) return;
       try {
         const { data, error } = await supabase
           .from('orders')
           .select('*, tables(number)')
           .eq('id', orderId)
           .single();
-        if (error) throw error;
+        if (error) {
+          console.error('Fetch order error:', error.message);
+          throw error;
+        }
         setOrder(data);
         setLoading(false);
       } catch (err) {
-        setError('Failed to load order. Please try again.');
+        console.error('Fetch order failed:', err.message);
+        setError('Failed to load order. The order may not exist or you lack access.');
         setLoading(false);
+        // Redirect to /blocked after 3 seconds
+        setTimeout(() => {
+          localStorage.removeItem('orderId');
+          router.push('/blocked');
+        }, 3000);
       }
     }
-    if (orderId) fetchOrder();
-  }, [orderId]);
+    fetchOrder();
+  }, [orderId, router]);
 
   // Subscribe to realtime updates
   useEffect(() => {
+    if (!orderId) return;
     const subscription = supabase
       .channel('orders')
       .on(
@@ -65,7 +76,7 @@ export default function Order() {
   const total = order?.items.reduce((sum, item) => sum + item.price, 0) || 0;
 
   if (loading) return <div className="text-center mt-10" role="status">Loading order...</div>;
-  if (error) return <div className="text-center mt-10 text-red-500" role="alert">{error}</div>;
+  if (error) return <div className="text-center mt-10 text-red-500" role="alert">{error} Redirecting...</div>;
   if (!order) return <div className="text-center mt-10" role="alert">Order not found</div>;
 
   return (
