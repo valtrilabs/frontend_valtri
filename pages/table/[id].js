@@ -33,30 +33,22 @@ export default function Table() {
   };
 
   // Place order
-  // const placeOrder = async () => {
-  //   if (cart.length === 0) return alert('Cart is empty');
-  //   setLoading(true);
-  //   const { data, error } = await fetch('/api/orders', {
-  //     method: 'POST',
-  //     headers: { 'Content-Type': 'application/json' },
-  //     body: JSON.stringify({ table_id: parseInt(id), items: cart }),
-  //   }).then(res => res.json());
-  //   setLoading(false);
-  //   if (error) return alert(error);
-  //   localStorage.setItem('orderId', data.id);
-  //   router.push(`/order/${data.id}`);
-  // };
-
   const placeOrder = async () => {
     if (cart.length === 0) return alert('Cart is empty');
     setLoading(true);
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/orders`, {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, ''); // Remove trailing slash
+      console.log('PlaceOrder - API URL:', apiUrl);
+      console.log('PlaceOrder - Payload:', JSON.stringify({ table_id: parseInt(id), items: cart }));
+      const response = await fetch(`${apiUrl}/api/orders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ table_id: parseInt(id), items: cart }),
+        signal: AbortSignal.timeout(30000), // 30s timeout
       });
+      console.log('PlaceOrder - Response status:', response.status);
       const { data, error } = await response.json();
+      console.log('PlaceOrder - Response data:', data, 'Error:', error);
       setLoading(false);
       if (error || !response.ok) {
         console.error('Order error:', error || `HTTP ${response.status}`);

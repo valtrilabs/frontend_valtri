@@ -20,8 +20,17 @@ export default function Admin() {
   // Fetch pending orders
   useEffect(() => {
     async function fetchOrders() {
-      const { data } = await fetch('/api/admin/orders').then(res => res.json());
-      setOrders(data);
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
+        console.log('Admin - Fetching orders from:', `${apiUrl}/api/admin/orders`);
+        const response = await fetch(`${apiUrl}/api/admin/orders`);
+        const data = await response.json();
+        console.log('Admin - Orders response:', data);
+        setOrders(data);
+      } catch (err) {
+        console.error('Admin - Fetch orders error:', err.message);
+        alert(`Failed to fetch orders: ${err.message}`);
+      }
     }
     if (isLoggedIn) fetchOrders();
   }, [isLoggedIn]);
@@ -44,8 +53,19 @@ export default function Admin() {
 
   // Mark order as paid
   const markAsPaid = async (orderId) => {
-    await fetch(`/api/orders/${orderId}/pay`, { method: 'PATCH' });
-    setOrders(orders.filter(order => order.id !== orderId));
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
+      console.log('Admin - Marking order as paid:', `${apiUrl}/api/orders/${orderId}/pay`);
+      const response = await fetch(`${apiUrl}/api/orders/${orderId}/pay`, { method: 'PATCH' });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      console.log('Admin - Order marked as paid:', orderId);
+      setOrders(orders.filter(order => order.id !== orderId));
+    } catch (err) {
+      console.error('Admin - Mark as paid error:', err.message);
+      alert(`Failed to mark order as paid: ${err.message}`);
+    }
   };
 
   // Add new menu item
@@ -62,7 +82,8 @@ export default function Admin() {
 
   // Export orders
   const exportOrders = () => {
-    window.location.href = '/api/admin/orders/export';
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
+    window.location.href = `${apiUrl}/api/admin/orders/export`;
   };
 
   if (!isLoggedIn) {
