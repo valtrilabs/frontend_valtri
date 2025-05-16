@@ -5,12 +5,12 @@ import { PrinterIcon, ChartBarIcon, ClipboardDocumentListIcon, PlusIcon, TrashIc
 import Escpos from 'escpos-buffer';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
-import { formatInTimeZone } from 'date-fns-tz';
+import { format, add } from 'date-fns';
 
 export default function Admin() {
   const router = useRouter();
   const [orders, setOrders] = useState([]);
-  const [paidOrders, setPaidOrders] = useState([]); // New state for paid orders
+  const [paidOrders, setPaidOrders] = useState([]);
   const [menuItems, setMenuItems] = useState([]);
   const [newItem, setNewItem] = useState({ name: '', category: '', price: '', is_available: true });
   const [email, setEmail] = useState('');
@@ -18,10 +18,8 @@ export default function Admin() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('Pending Orders');
-  // Editable orders
   const [editingOrder, setEditingOrder] = useState(null);
   const [editedItems, setEditedItems] = useState([]);
-  // Order history
   const [historyOrders, setHistoryOrders] = useState([]);
   const [historyFilters, setHistoryFilters] = useState({
     dateRange: 'today',
@@ -33,7 +31,6 @@ export default function Admin() {
     page: 1,
     perPage: 10
   });
-  // Analytics export
   const [exportType, setExportType] = useState('order');
   const [exportFilters, setExportFilters] = useState({
     startDate: new Date(),
@@ -41,10 +38,33 @@ export default function Admin() {
     statuses: ['paid'],
     search: ''
   });
-  // View invoice
   const [viewingOrder, setViewingOrder] = useState(null);
 
-  // Check if admin is logged in
+  // Helper function to convert UTC to IST and format
+  const formatToIST = (date) => {
+    const utcDate = new Date(date);
+    const istDate = add(utcDate, { hours: 5, minutes: 30 }); // IST is UTC+5:30
+    return format(istDate, 'dd/MM/yyyy HH:mm:ss');
+  };
+
+  const formatToISTDateOnly = (date) => {
+    const utcDate = new Date(date);
+    const istDate = add(utcDate, { hours: 5, minutes: 30 });
+    return format(istDate, 'dd/MM/yyyy');
+  };
+
+  const formatToISTHourOnly = (date) => {
+    const utcDate = new Date(date);
+    const istDate = add(utcDate, { hours: 5, minutes: 30 });
+    return format(istDate, 'HH');
+  };
+
+  const formatToISTDateForComparison = (date) => {
+    const utcDate = new Date(date);
+    const istDate = add(utcDate, { hours: 5, minutes: 30 });
+    return format(istDate, 'yyyy-MM-dd');
+  };
+
   useEffect(() => {
     const checkSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -54,7 +74,6 @@ export default function Admin() {
     checkSession();
   }, [router]);
 
-  // Fetch pending orders
   useEffect(() => {
     async function fetchOrders() {
       try {
@@ -70,7 +89,6 @@ export default function Admin() {
     if (isLoggedIn && activeTab === 'Pending Orders') fetchOrders();
   }, [isLoggedIn, activeTab]);
 
-  // Fetch paid orders for analytics
   useEffect(() => {
     async function fetchPaidOrders() {
       try {
@@ -97,7 +115,6 @@ export default function Admin() {
     if (isLoggedIn && activeTab === 'Data Analytics') fetchPaidOrders();
   }, [isLoggedIn, activeTab]);
 
-  // Fetch menu items
   useEffect(() => {
     async function fetchMenu() {
       try {
@@ -111,7 +128,6 @@ export default function Admin() {
     if (isLoggedIn) fetchMenu();
   }, [isLoggedIn]);
 
-  // Fetch order history
   const fetchHistory = async () => {
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
@@ -165,7 +181,6 @@ export default function Admin() {
     if (isLoggedIn && activeTab === 'Order History') fetchHistory();
   }, [isLoggedIn, activeTab, historyFilters.search, historyFilters.dateRange, historyFilters.statuses, historyFilters.customStart, historyFilters.customEnd]);
 
-  // Real-time subscription for new orders to trigger KOT printing
   useEffect(() => {
     if (!isLoggedIn) return;
 
@@ -173,7 +188,6 @@ export default function Admin() {
       .channel('orders-channel')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, async (payload) => {
         const newOrder = payload.new;
-        // Fetch full order details including table and items
         try {
           const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
           const response = await fetch(`${apiUrl}/api/orders/${newOrder.id}`);
@@ -191,7 +205,6 @@ export default function Admin() {
     };
   }, [isLoggedIn]);
 
-  // Admin login
   const handleLogin = async () => {
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -202,14 +215,12 @@ export default function Admin() {
     }
   };
 
-  // Mark order as paid
   const markAsPaid = async (orderId) => {
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
       const response = await fetch(`${apiUrl}/api/orders/${orderId}/pay`, { method: 'PATCH' });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       setOrders(orders.filter(order => order.id !== orderId));
-      // Refresh paid orders for analytics
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
       const todayEnd = new Date();
@@ -229,7 +240,6 @@ export default function Admin() {
     }
   };
 
-  // Edit order
   const startEditing = (order) => {
     setEditingOrder(order);
     setEditedItems([...order.items]);
@@ -281,7 +291,6 @@ export default function Admin() {
     setEditedItems([]);
   };
 
-  // Add menu item
   const addMenuItem = async () => {
     if (!newItem.name || !newItem.price) {
       setError('Name and price are required');
@@ -305,7 +314,6 @@ export default function Admin() {
     }
   };
 
-  // Remove menu item
   const removeMenuItem = async (itemId) => {
     try {
       const { error } = await supabase
@@ -319,7 +327,6 @@ export default function Admin() {
     }
   };
 
-  // Toggle menu item availability
   const toggleAvailability = async (itemId, currentStatus) => {
     try {
       const { error } = await supabase
@@ -335,14 +342,12 @@ export default function Admin() {
     }
   };
 
-  // Print KOT (Kitchen Order Ticket)
   const printKOT = async (order) => {
     try {
       const devices = await navigator.usb.getDevices();
-      const kitchen1Printer = devices.find(d => d.vendorId === 0x04b8 && d.productId === 0x0e15); // Kitchen 1
-      const kitchen2Printer = devices.find(d => d.vendorId === 0x04b8 && d.productId === 0x0e16); // Kitchen 2
+      const kitchen1Printer = devices.find(d => d.vendorId === 0x04b8 && d.productId === 0x0e15);
+      const kitchen2Printer = devices.find(d => d.vendorId === 0x04b8 && d.productId === 0x0e16);
 
-      // Split items by category
       const chineseItems = [];
       const otherItems = [];
       for (const item of order.items) {
@@ -354,7 +359,6 @@ export default function Admin() {
         }
       }
 
-      // Print to Kitchen 1 (non-Chinese items)
       if (otherItems.length > 0 && kitchen1Printer) {
         await kitchen1Printer.open();
         await kitchen1Printer.selectConfiguration(1);
@@ -369,7 +373,7 @@ export default function Admin() {
           .size(1, 1)
           .text(`Order #${order.order_number || order.id}`)
           .text(`Table ${order.tables?.number || order.table_id}`)
-          .text(`Date: ${formatInTimeZone(new Date(order.created_at), 'Asia/Kolkata', 'dd/MM/yyyy HH:mm:ss')}`)
+          .text(`Date: ${formatToIST(new Date(order.created_at))}`)
           .newline()
           .align('left')
           .text('--------------------------------')
@@ -395,7 +399,6 @@ export default function Admin() {
         await kitchen1Printer.close();
       }
 
-      // Print to Kitchen 2 (Chinese items)
       if (chineseItems.length > 0 && kitchen2Printer) {
         await kitchen2Printer.open();
         await kitchen2Printer.selectConfiguration(1);
@@ -410,7 +413,7 @@ export default function Admin() {
           .size(1, 1)
           .text(`Order #${order.order_number || order.id}`)
           .text(`Table ${order.tables?.number || order.table_id}`)
-          .text(`Date: ${formatInTimeZone(new Date(order.created_at), 'Asia/Kolkata', 'dd/MM/yyyy HH:mm:ss')}`)
+          .text(`Date: ${formatToIST(new Date(order.created_at))}`)
           .newline()
           .align('left')
           .text('--------------------------------')
@@ -440,11 +443,10 @@ export default function Admin() {
     }
   };
 
-  // Print bill (Admin printer)
   const printBill = async (order) => {
     try {
       const devices = await navigator.usb.getDevices();
-      const adminPrinter = devices.find(d => d.vendorId === 0x04b8 && d.productId === 0x0e17); // Admin printer
+      const adminPrinter = devices.find(d => d.vendorId === 0x04b8 && d.productId === 0x0e17);
       if (!adminPrinter) throw new Error('No compatible admin printer found');
 
       await adminPrinter.open();
@@ -460,7 +462,7 @@ export default function Admin() {
         .size(1, 1)
         .text(`Order #${order.order_number || order.id}`)
         .text(`Table ${order.tables?.number || order.table_id}`)
-        .text(`Date: ${formatInTimeZone(new Date(order.created_at), 'Asia/Kolkata', 'dd/MM/yyyy HH:mm:ss')}`)
+        .text(`Date: ${formatToIST(new Date(order.created_at))}`)
         .newline()
         .align('left')
         .text('--------------------------------')
@@ -501,11 +503,10 @@ export default function Admin() {
     }
   };
 
-  // Analytics calculations (use paidOrders)
   const getAnalytics = () => {
-    const today = formatInTimeZone(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd');
+    const today = formatToISTDateForComparison(new Date());
     const todaysOrders = paidOrders.filter(order =>
-      formatInTimeZone(new Date(order.created_at), 'Asia/Kolkata', 'yyyy-MM-dd') === today
+      formatToISTDateForComparison(new Date(order.created_at)) === today
     );
 
     const totalOrders = todaysOrders.length;
@@ -524,7 +525,7 @@ export default function Admin() {
 
     const ordersByHour = Array(24).fill(0);
     todaysOrders.forEach(order => {
-      const hour = parseInt(formatInTimeZone(new Date(order.created_at), 'Asia/Kolkata', 'HH'));
+      const hour = parseInt(formatToISTHourOnly(new Date(order.created_at)));
       ordersByHour[hour]++;
     });
     const peakHour = ordersByHour.indexOf(Math.max(...ordersByHour));
@@ -534,7 +535,6 @@ export default function Admin() {
 
   const analytics = getAnalytics();
 
-  // Export CSV
   const exportOrders = () => {
     const startDate = new Date(exportFilters.startDate.setHours(0, 0, 0, 0)).toISOString();
     const endDate = new Date(exportFilters.endDate.setHours(23, 59, 59, 999)).toISOString();
@@ -554,8 +554,8 @@ export default function Admin() {
         'Order ID,Date,Time,Table Number,Status,Total Amount,Items',
         ...filteredOrders.map(order => {
           const total = order.items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0);
-          const date = formatInTimeZone(new Date(order.created_at), 'Asia/Kolkata', 'dd/MM/yyyy');
-          const time = formatInTimeZone(new Date(order.created_at), 'Asia/Kolkata', 'HH:mm');
+          const date = formatToISTDateOnly(new Date(order.created_at));
+          const time = formatToIST(new Date(order.created_at)).split(' ')[1];
           const items = order.items.map(item => `${item.name} x${item.quantity || 1}`).join(', ');
           return `${order.order_number || order.id},${date},${time},${order.tables?.number || order.table_id},${order.status},${total.toFixed(2)},${items}`;
         })
@@ -564,7 +564,7 @@ export default function Admin() {
       csv = [
         'Order ID,Date,Item Name,Quantity,Unit Price,Total Price,Status,Table Number',
         ...filteredOrders.flatMap(order => {
-          const date = formatInTimeZone(new Date(order.created_at), 'Asia/Kolkata', 'dd/MM/yyyy');
+          const date = formatToISTDateOnly(new Date(order.created_at));
           return order.items.map(item => {
             const totalPrice = (item.price * (item.quantity || 1)).toFixed(2);
             return `${order.order_number || order.id},${date},${item.name},${item.quantity || 1},${item.price.toFixed(2)},${totalPrice},${order.status},${order.tables?.number || order.table_id}`;
@@ -573,17 +573,16 @@ export default function Admin() {
       ];
     }
 
-    const bom = '\uFEFF'; // UTF-8 BOM for Excel
+    const bom = '\uFEFF';
     const blob = new Blob([bom + csv.join('\n')], { type: 'text/csv;charset=utf-8' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `orders_${exportType}_${formatInTimeZone(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd')}.csv`;
+    a.download = `orders_${exportType}_${formatToISTDateOnly(new Date())}.csv`;
     a.click();
     window.URL.revokeObjectURL(url);
   };
 
-  // Status filter UI component
   const StatusFilter = ({ statuses, onChange, label }) => (
     <div>
       <label className="block text-sm font-medium mb-1">{label}</label>
@@ -648,7 +647,6 @@ export default function Admin() {
 
   return (
     <div className="min-h-screen bg-gray-100 flex">
-      {/* Sidebar */}
       <div className="w-64 bg-white shadow-lg p-4 fixed h-full">
         <h1 className="text-2xl font-bold mb-8 text-gray-800">Gsaheb Cafe Admin</h1>
         <nav>
@@ -678,7 +676,6 @@ export default function Admin() {
         </button>
       </div>
 
-      {/* Main Content */}
       <div className="ml-64 flex-1 p-8">
         {error && (
           <div className="bg-red-100 text-red-700 p-4 rounded-lg mb-6" role="alert">
@@ -686,7 +683,6 @@ export default function Admin() {
           </div>
         )}
 
-        {/* Pending Orders Tab */}
         {activeTab === 'Pending Orders' && (
           <div>
             <h2 className="text-2xl font-bold text-gray-800 mb-6">Pending Orders</h2>
@@ -696,7 +692,7 @@ export default function Admin() {
               <div className="grid gap-6">
                 {orders.map(order => {
                   const total = order.items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0);
-                  const formattedDate = formatInTimeZone(new Date(order.created_at), 'Asia/Kolkata', 'dd/MM/yyyy HH:mm:ss');
+                  const formattedDate = formatToIST(new Date(order.created_at));
                   return (
                     <div key={order.id} className="bg-white p-6 rounded-lg shadow-md">
                       <div className="flex justify-between items-center mb-4">
@@ -761,7 +757,6 @@ export default function Admin() {
           </div>
         )}
 
-        {/* Edit Order Modal */}
         {editingOrder && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
             <div className="bg-white p-6 rounded-lg max-w-2xl w-full">
@@ -846,7 +841,6 @@ export default function Admin() {
           </div>
         )}
 
-        {/* Order History Tab */}
         {activeTab === 'Order History' && (
           <div>
             <h2 className="text-2xl font-bold text-gray-800 mb-6">Order History</h2>
@@ -934,7 +928,7 @@ export default function Admin() {
                       return (
                         <tr key={order.id} className="border-b">
                           <td className="py-3 px-4">{order.order_number || order.id}</td>
-                          <td className="py-3 px-4">{formatInTimeZone(new Date(order.created_at), 'Asia/Kolkata', 'dd/MM/yyyy HH:mm:ss')}</td>
+                          <td className="py-3 px-4">{formatToIST(new Date(order.created_at))}</td>
                           <td className="py-3 px-4">{order.tables?.number || order.table_id}</td>
                           <td className="text-right py-3 px-4">₹{total.toFixed(2)}</td>
                           <td className="py-3 px-4">{order.status}</td>
@@ -983,12 +977,11 @@ export default function Admin() {
           </div>
         )}
 
-        {/* View Invoice Modal */}
         {viewingOrder && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
             <div className="bg-white p-6 rounded-lg max-w-2xl w-full">
               <h3 className="text-xl font-bold mb-4">Invoice #{viewingOrder.order_number || viewingOrder.id}</h3>
-              <p className="text-sm text-gray-500 mb-2">{formatInTimeZone(new Date(viewingOrder.created_at), 'Asia/Kolkata', 'dd/MM/yyyy HH:mm:ss')}</p>
+              <p className="text-sm text-gray-500 mb-2">{formatToIST(new Date(viewingOrder.created_at))}</p>
               <p className="text-sm text-gray-500 mb-4">Table {viewingOrder.tables?.number || viewingOrder.table_id}</p>
               <table className="w-full mb-4">
                 <thead>
@@ -1033,7 +1026,6 @@ export default function Admin() {
           </div>
         )}
 
-        {/* Menu Management Tab */}
         {activeTab === 'Menu Management' && (
           <div>
             <h2 className="text-2xl font-bold text-gray-800 mb-6">Menu Management</h2>
@@ -1130,7 +1122,6 @@ export default function Admin() {
           </div>
         )}
 
-        {/* Data Analytics Tab */}
         {activeTab === 'Data Analytics' && (
           <div>
             <h2 className="text-2xl font-bold text-gray-800 mb-6">Data Analytics</h2>
@@ -1163,7 +1154,7 @@ export default function Admin() {
                   Peak Hour
                 </h3>
                 <p className="text-xl font-bold">{analytics.peakHour}:00–{analytics.peakHour + 1}:00</p>
-                <p className="text-sm">{paidOrders.filter(o => parseInt(formatInTimeZone(new Date(o.created_at), 'Asia/Kolkata', 'HH')) === analytics.peakHour).length} orders</p>
+                <p className="text-sm">{paidOrders.filter(o => parseInt(formatToISTHourOnly(new Date(o.created_at))) === analytics.peakHour).length} orders</p>
               </div>
             </div>
             <div className="bg-white p-6 rounded-lg shadow-md">
