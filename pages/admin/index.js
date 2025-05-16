@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../../lib/supabase';
 import { PrinterIcon, ChartBarIcon, ClipboardDocumentListIcon, PlusIcon, TrashIcon, CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/outline';
+import Escpos from 'escpos-buffer';
 
 export default function Admin() {
   const router = useRouter();
@@ -134,16 +135,16 @@ export default function Admin() {
   // Print bill (80mm thermal printer)
   const printBill = async (order) => {
     try {
-      // Load escpos-buffer dynamically
-      const { default: Escpos } = await import('https://cdn.jsdelivr.net/npm/escpos-buffer@0.4.1/+esm');
-      
       // Request USB device (assumes thermal printer supports WebUSB)
-      const device = await navigator.usb.requestDevice({ filters: [{ vendorId: 0x0483 }] }); // Adjust vendorId for your printer
+      const devices = await navigator.usb.getDevices();
+      const device = devices.find(d => d.vendorId === 0x04b8) || // EPSON vendorId, adjust as needed
+        await navigator.usb.requestDevice({ filters: [{ vendorId: 0x04b8 }] });
+      if (!device) throw new Error('No compatible printer found');
+
       await device.open();
       await device.selectConfiguration(1);
       await device.claimInterface(0);
 
-      const encoder = new TextEncoder();
       const writer = Escpos.getUSBPrinter(device);
 
       // ESC/POS commands for 80mm receipt
@@ -190,7 +191,7 @@ export default function Admin() {
 
       // Send data to printer
       const buffer = writer.buffer();
-      await device.transferOut(1, buffer); // Adjust endpoint as needed
+      await device.transferOut(1, buffer); // Adjust endpoint if needed
       await device.close();
     } catch (err) {
       setError(`Failed to print bill: ${err.message}. Ensure printer is connected and supports WebUSB.`);
