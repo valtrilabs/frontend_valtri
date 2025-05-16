@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../../lib/supabase';
-import { PrinterIcon, ChartBarIcon, ClipboardDocumentListIcon, PlusIcon, TrashIcon, CheckCircleIcon, XCircleIcon, ClockIcon, PencilSquareIcon } from '@heroicons/react/24/outline';
+import { PrinterIcon, ChartBarIcon, ClipboardDocumentListIcon, PlusIcon, TrashIcon, CheckCircleIcon, XCircleIcon, ClockIcon, PencilSquareIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline';
 import Escpos from 'escpos-buffer';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
@@ -26,7 +26,8 @@ export default function Admin() {
     customStart: new Date(),
     customEnd: new Date(),
     statuses: ['paid'],
-    search: '',
+    searchInput: '', // Temporary input for search
+    search: '', // Actual search term to trigger fetch
     page: 1,
     perPage: 10
   });
@@ -82,57 +83,58 @@ export default function Admin() {
   }, [isLoggedIn]);
 
   // Fetch order history
-  useEffect(() => {
-    async function fetchHistory() {
-      try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
-        let startDate, endDate;
-        const today = new Date();
-        switch (historyFilters.dateRange) {
-          case 'today':
-            startDate = new Date(today.setHours(0, 0, 0, 0)).toISOString();
-            endDate = new Date(today.setHours(23, 59, 59, 999)).toISOString();
-            break;
-          case 'yesterday':
-            startDate = new Date(today.setDate(today.getDate() - 1)).setHours(0, 0, 0, 0);
-            endDate = new Date(today.setDate(today.getDate())).setHours(23, 59, 59, 999);
-            startDate = new Date(startDate).toISOString();
-            endDate = new Date(endDate).toISOString();
-            break;
-          case 'last7days':
-            startDate = new Date(today.setDate(today.getDate() - 7)).setHours(0, 0, 0, 0);
-            endDate = new Date(today.setDate(today.getDate() + 7)).setHours(23, 59, 59, 999);
-            startDate = new Date(startDate).toISOString();
-            endDate = new Date(endDate).toISOString();
-            break;
-          case 'custom':
-            startDate = new Date(historyFilters.customStart.setHours(0, 0, 0, 0)).toISOString();
-            endDate = new Date(historyFilters.customEnd.setHours(23, 59, 59, 999)).toISOString();
-            break;
-        }
-
-        const params = new URLSearchParams();
-        if (startDate && endDate) {
-          params.append('startDate', startDate);
-          params.append('endDate', endDate);
-        }
-        if (historyFilters.statuses.length) {
-          params.append('statuses', historyFilters.statuses.join(','));
-        }
-        if (historyFilters.search) {
-          params.append('search', historyFilters.search);
-        }
-
-        const response = await fetch(`${apiUrl}/api/admin/orders/history?${params}`);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = await response.json();
-        setHistoryOrders(data);
-      } catch (err) {
-        setError(`Failed to fetch order history: ${err.message}`);
+  const fetchHistory = async () => {
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
+      let startDate, endDate;
+      const today = new Date();
+      switch (historyFilters.dateRange) {
+        case 'today':
+          startDate = new Date(today.setHours(0, 0, 0, 0)).toISOString();
+          endDate = new Date(today.setHours(23, 59, 59, 999)).toISOString();
+          break;
+        case 'yesterday':
+          startDate = new Date(today.setDate(today.getDate() - 1)).setHours(0, 0, 0, 0);
+          endDate = new Date(today.setDate(today.getDate())).setHours(23, 59, 59, 999);
+          startDate = new Date(startDate).toISOString();
+          endDate = new Date(endDate).toISOString();
+          break;
+        case 'last7days':
+          startDate = new Date(today.setDate(today.getDate() - 7)).setHours(0, 0, 0, 0);
+          endDate = new Date(today.setDate(today.getDate() + 7)).setHours(23, 59, 59, 999);
+          startDate = new Date(startDate).toISOString();
+          endDate = new Date(endDate).toISOString();
+          break;
+        case 'custom':
+          startDate = new Date(historyFilters.customStart.setHours(0, 0, 0, 0)).toISOString();
+          endDate = new Date(historyFilters.customEnd.setHours(23, 59, 59, 999)).toISOString();
+          break;
       }
+
+      const params = new URLSearchParams();
+      if (startDate && endDate) {
+        params.append('startDate', startDate);
+        params.append('endDate', endDate);
+      }
+      if (historyFilters.statuses.length) {
+        params.append('statuses', historyFilters.statuses.join(','));
+      }
+      if (historyFilters.search) {
+        params.append('search', historyFilters.search);
+      }
+
+      const response = await fetch(`${apiUrl}/api/admin/orders/history?${params}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      setHistoryOrders(data);
+    } catch (err) {
+      setError(`Failed to fetch order history: ${err.message}`);
     }
+  };
+
+  useEffect(() => {
     if (isLoggedIn && activeTab === 'Order History') fetchHistory();
-  }, [isLoggedIn, activeTab, historyFilters]);
+  }, [isLoggedIn, activeTab, historyFilters.search, historyFilters.dateRange, historyFilters.statuses, historyFilters.customStart, historyFilters.customEnd]);
 
   // Admin login
   const handleLogin = async () => {
@@ -407,6 +409,35 @@ export default function Admin() {
     window.URL.revokeObjectURL(url);
   };
 
+  // Status filter UI component
+  const StatusFilter = ({ statuses, onChange, label }) => (
+    <div>
+      <label className="block text-sm font-medium mb-1">{label}</label>
+      <div className="border rounded-lg p-3 bg-gray-50">
+        {['pending', 'paid'].map(status => (
+          <label key={status} className="flex items-center mb-2">
+            <input
+              type="checkbox"
+              value={status}
+              checked={statuses.includes(status)}
+              onChange={(e) => {
+                const newStatuses = e.target.checked
+                  ? [...statuses, status]
+                  : statuses.filter(s => s !== status);
+                onChange(newStatuses);
+              }}
+              className="mr-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              aria-label={`Filter by ${status} status`}
+            />
+            <span className={`capitalize ${status === 'paid' ? 'text-green-600' : 'text-yellow-600'}`}>
+              {status}
+            </span>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+
   if (!isLoggedIn) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100">
@@ -680,33 +711,31 @@ export default function Admin() {
                     </div>
                   )}
                 </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Status</label>
-                  <select
-                    multiple
-                    className="border p-2 w-full rounded-lg"
-                    value={historyFilters.statuses}
-                    onChange={(e) => setHistoryFilters({
-                      ...historyFilters,
-                      statuses: Array.from(e.target.selectedOptions, option => option.value),
-                      page: 1
-                    })}
-                    aria-label="Status filter"
-                  >
-                    <option value="pending">Pending</option>
-                    <option value="paid">Paid</option>
-                  </select>
-                </div>
+                <StatusFilter
+                  label="Status"
+                  statuses={historyFilters.statuses}
+                  onChange={(newStatuses) => setHistoryFilters({ ...historyFilters, statuses: newStatuses, page: 1 })}
+                />
                 <div>
                   <label className="block text-sm font-medium mb-1">Search</label>
-                  <input
-                    type="text"
-                    placeholder="Order ID or Table Number"
-                    value={historyFilters.search}
-                    onChange={(e) => setHistoryFilters({ ...historyFilters, search: e.target.value, page: 1 })}
-                    className="border p-2 w-full rounded-lg"
-                    aria-label="Search orders"
-                  />
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="Order ID or Table Number"
+                      value={historyFilters.searchInput}
+                      onChange={(e) => setHistoryFilters({ ...historyFilters, searchInput: e.target.value })}
+                      className="border p-2 w-full rounded-lg"
+                      aria-label="Search orders"
+                    />
+                    <button
+                      className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                      onClick={() => setHistoryFilters({ ...historyFilters, search: historyFilters.searchInput, page: 1 })}
+                      aria-label="Search orders"
+                    >
+                      <MagnifyingGlassIcon className="h-5 w-5" />
+                      Search
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -986,22 +1015,11 @@ export default function Admin() {
                     />
                   </div>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Status</label>
-                  <select
-                    multiple
-                    className="border p-2 w-full rounded-lg"
-                    value={exportFilters.statuses}
-                    onChange={(e) => setExportFilters({
-                      ...exportFilters,
-                      statuses: Array.from(e.target.selectedOptions, option => option.value)
-                    })}
-                    aria-label="Export status filter"
-                  >
-                    <option value="pending">Pending</option>
-                    <option value="paid">Paid</option>
-                  </select>
-                </div>
+                <StatusFilter
+                  label="Status"
+                  statuses={exportFilters.statuses}
+                  onChange={(newStatuses) => setExportFilters({ ...exportFilters, statuses: newStatuses })}
+                />
                 <div>
                   <label className="block text-sm font-medium mb-1">Search</label>
                   <input
