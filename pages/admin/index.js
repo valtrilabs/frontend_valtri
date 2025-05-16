@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../../lib/supabase';
-import { PrinterIcon, ChartBarIcon, ClipboardDocumentListIcon, PlusIcon, TrashIcon, CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/outline';
+import { PrinterIcon, ChartBarIcon, ClipboardDocumentListIcon, PlusIcon, TrashIcon, CheckCircleIcon, XCircleIcon, ClockIcon, PencilSquareIcon } from '@heroicons/react/24/outline';
 import Escpos from 'escpos-buffer';
+import DatePicker from 'react-datepicker';
+import 'react-datepicker/dist/react-datepicker.css';
 
 export default function Admin() {
   const router = useRouter();
@@ -14,6 +16,30 @@ export default function Admin() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('Pending Orders');
+  // Editable orders
+  const [editingOrder, setEditingOrder] = useState(null);
+  const [editedItems, setEditedItems] = useState([]);
+  // Order history
+  const [historyOrders, setHistoryOrders] = useState([]);
+  const [historyFilters, setHistoryFilters] = useState({
+    dateRange: 'today',
+    customStart: new Date(),
+    customEnd: new Date(),
+    statuses: ['paid'],
+    search: '',
+    page: 1,
+    perPage: 10
+  });
+  // Analytics export
+  const [exportType, setExportType] = useState('order');
+  const [exportFilters, setExportFilters] = useState({
+    startDate: new Date(),
+    endDate: new Date(),
+    statuses: ['paid'],
+    search: ''
+  });
+  // View invoice
+  const [viewingOrder, setViewingOrder] = useState(null);
 
   // Check if admin is logged in
   useEffect(() => {
@@ -38,8 +64,8 @@ export default function Admin() {
         setError(`Failed to fetch orders: ${err.message}`);
       }
     }
-    if (isLoggedIn) fetchOrders();
-  }, [isLoggedIn]);
+    if (isLoggedIn && activeTab === 'Pending Orders') fetchOrders();
+  }, [isLoggedIn, activeTab]);
 
   // Fetch menu items
   useEffect(() => {
@@ -54,6 +80,59 @@ export default function Admin() {
     }
     if (isLoggedIn) fetchMenu();
   }, [isLoggedIn]);
+
+  // Fetch order history
+  useEffect(() => {
+    async function fetchHistory() {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
+        let startDate, endDate;
+        const today = new Date();
+        switch (historyFilters.dateRange) {
+          case 'today':
+            startDate = new Date(today.setHours(0, 0, 0, 0)).toISOString();
+            endDate = new Date(today.setHours(23, 59, 59, 999)).toISOString();
+            break;
+          case 'yesterday':
+            startDate = new Date(today.setDate(today.getDate() - 1)).setHours(0, 0, 0, 0);
+            endDate = new Date(today.setDate(today.getDate())).setHours(23, 59, 59, 999);
+            startDate = new Date(startDate).toISOString();
+            endDate = new Date(endDate).toISOString();
+            break;
+          case 'last7days':
+            startDate = new Date(today.setDate(today.getDate() - 7)).setHours(0, 0, 0, 0);
+            endDate = new Date(today.setDate(today.getDate() + 7)).setHours(23, 59, 59, 999);
+            startDate = new Date(startDate).toISOString();
+            endDate = new Date(endDate).toISOString();
+            break;
+          case 'custom':
+            startDate = new Date(historyFilters.customStart.setHours(0, 0, 0, 0)).toISOString();
+            endDate = new Date(historyFilters.customEnd.setHours(23, 59, 59, 999)).toISOString();
+            break;
+        }
+
+        const params = new URLSearchParams();
+        if (startDate && endDate) {
+          params.append('startDate', startDate);
+          params.append('endDate', endDate);
+        }
+        if (historyFilters.statuses.length) {
+          params.append('statuses', historyFilters.statuses.join(','));
+        }
+        if (historyFilters.search) {
+          params.append('search', historyFilters.search);
+        }
+
+        const response = await fetch(`${apiUrl}/api/admin/orders/history?${params}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        setHistoryOrders(data);
+      } catch (err) {
+        setError(`Failed to fetch order history: ${err.message}`);
+      }
+    }
+    if (isLoggedIn && activeTab === 'Order History') fetchHistory();
+  }, [isLoggedIn, activeTab, historyFilters]);
 
   // Admin login
   const handleLogin = async () => {
@@ -76,6 +155,58 @@ export default function Admin() {
     } catch (err) {
       setError(`Failed to mark order as paid: ${err.message}`);
     }
+  };
+
+  // Edit order
+  const startEditing = (order) => {
+    setEditingOrder(order);
+    setEditedItems([...order.items]);
+  };
+
+  const updateQuantity = (index, delta) => {
+    const newItems = [...editedItems];
+    const newQuantity = Math.max(1, (newItems[index].quantity || 1) + delta);
+    newItems[index] = { ...newItems[index], quantity: newQuantity };
+    setEditedItems(newItems);
+  };
+
+  const removeItem = (index) => {
+    setEditedItems(editedItems.filter((_, i) => i !== index));
+  };
+
+  const addItem = (itemId) => {
+    const menuItem = menuItems.find(item => item.id === itemId);
+    if (menuItem && !editedItems.some(item => item.item_id === itemId)) {
+      setEditedItems([...editedItems, {
+        item_id: menuItem.id,
+        name: menuItem.name,
+        price: menuItem.price,
+        quantity: 1
+      }]);
+    }
+  };
+
+  const saveOrder = async () => {
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
+      const response = await fetch(`${apiUrl}/api/orders/${editingOrder.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: editedItems })
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const updatedOrder = await response.json();
+      setOrders(orders.map(o => o.id === editingOrder.id ? updatedOrder : o));
+      setEditingOrder(null);
+      setEditedItems([]);
+    } catch (err) {
+      setError(`Failed to update order: ${err.message}`);
+    }
+  };
+
+  const cancelEdit = () => {
+    setEditingOrder(null);
+    setEditedItems([]);
   };
 
   // Add menu item
@@ -132,12 +263,11 @@ export default function Admin() {
     }
   };
 
-  // Print bill (80mm thermal printer)
+  // Print bill
   const printBill = async (order) => {
     try {
-      // Request USB device (assumes thermal printer supports WebUSB)
       const devices = await navigator.usb.getDevices();
-      const device = devices.find(d => d.vendorId === 0x04b8) || // EPSON vendorId, adjust as needed
+      const device = devices.find(d => d.vendorId === 0x04b8) ||
         await navigator.usb.requestDevice({ filters: [{ vendorId: 0x04b8 }] });
       if (!device) throw new Error('No compatible printer found');
 
@@ -146,8 +276,6 @@ export default function Admin() {
       await device.claimInterface(0);
 
       const writer = Escpos.getUSBPrinter(device);
-
-      // ESC/POS commands for 80mm receipt
       writer
         .init()
         .align('center')
@@ -189,40 +317,15 @@ export default function Admin() {
         .cut()
         .close();
 
-      // Send data to printer
       const buffer = writer.buffer();
-      await device.transferOut(1, buffer); // Adjust endpoint if needed
+      await device.transferOut(1, buffer);
       await device.close();
     } catch (err) {
       setError(`Failed to print bill: ${err.message}. Ensure printer is connected and supports WebUSB.`);
     }
   };
 
-  // Export today's orders as CSV
-  const exportTodaysOrders = () => {
-    const today = new Date().toISOString().split('T')[0];
-    const todaysOrders = orders.filter(order =>
-      new Date(order.created_at).toISOString().split('T')[0] === today
-    );
-
-    const csv = [
-      'Order Number,Table Number,Items,Total,Status,Created At',
-      ...todaysOrders.map(order => {
-        const total = order.items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0);
-        return `${order.order_number || order.id},${order.tables?.number || order.table_id},${JSON.stringify(order.items)},${total.toFixed(2)},${order.status},${order.created_at}`;
-      }),
-    ].join('\n');
-
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `orders_${today}.csv`;
-    a.click();
-    window.URL.revokeObjectURL(url);
-  };
-
-  // Data analytics calculations
+  // Analytics calculations
   const getAnalytics = () => {
     const today = new Date().toISOString().split('T')[0];
     const todaysOrders = orders.filter(order =>
@@ -234,29 +337,75 @@ export default function Admin() {
       sum + order.items.reduce((s, item) => s + (item.price * (item.quantity || 1)), 0), 0
     );
 
-    // Top 5 items by quantity
     const itemCounts = {};
     todaysOrders.forEach(order => {
       order.items.forEach(item => {
         itemCounts[item.name] = (itemCounts[item.name] || 0) + (item.quantity || 1);
       });
     });
-    const topItems = Object.entries(itemCounts)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([name, count]) => ({ name, count }));
+    const mostSoldItem = Object.entries(itemCounts)
+      .sort((a, b) => b[1] - a[1])[0] || ['None', 0];
 
-    // Orders by hour
     const ordersByHour = Array(24).fill(0);
     todaysOrders.forEach(order => {
       const hour = new Date(order.created_at).getHours();
       ordersByHour[hour]++;
     });
+    const peakHour = ordersByHour.indexOf(Math.max(...ordersByHour));
 
-    return { totalOrders, totalRevenue, topItems, ordersByHour };
+    return { totalOrders, totalRevenue, mostSoldItem, peakHour };
   };
 
   const analytics = getAnalytics();
+
+  // Export CSV
+  const exportOrders = () => {
+    const startDate = new Date(exportFilters.startDate.setHours(0, 0, 0, 0)).toISOString();
+    const endDate = new Date(exportFilters.endDate.setHours(23, 59, 59, 999)).toISOString();
+    const filteredOrders = historyOrders.filter(order => {
+      const orderDate = new Date(order.created_at).toISOString();
+      const matchesDate = orderDate >= startDate && orderDate <= endDate;
+      const matchesStatus = exportFilters.statuses.length ? exportFilters.statuses.includes(order.status) : true;
+      const matchesSearch = exportFilters.search
+        ? order.order_number.includes(exportFilters.search) || order.tables?.number.includes(exportFilters.search)
+        : true;
+      return matchesDate && matchesStatus && matchesSearch;
+    });
+
+    let csv;
+    if (exportType === 'order') {
+      csv = [
+        'Order ID,Date,Time,Table Number,Status,Total Amount,Items',
+        ...filteredOrders.map(order => {
+          const total = order.items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0);
+          const date = new Date(order.created_at).toLocaleDateString('en-IN');
+          const time = new Date(order.created_at).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' });
+          const items = order.items.map(item => `${item.name} x${item.quantity || 1}`).join(', ');
+          return `${order.order_number || order.id},${date},${time},${order.tables?.number || order.table_id},${order.status},${total.toFixed(2)},${items}`;
+        })
+      ];
+    } else {
+      csv = [
+        'Order ID,Date,Item Name,Quantity,Unit Price,Total Price,Status,Table Number',
+        ...filteredOrders.flatMap(order => {
+          const date = new Date(order.created_at).toLocaleDateString('en-IN');
+          return order.items.map(item => {
+            const totalPrice = (item.price * (item.quantity || 1)).toFixed(2);
+            return `${order.order_number || order.id},${date},${item.name},${item.quantity || 1},${item.price.toFixed(2)},${totalPrice},${order.status},${order.tables?.number || order.table_id}`;
+          });
+        })
+      ];
+    }
+
+    const bom = '\uFEFF'; // UTF-8 BOM for Excel
+    const blob = new Blob([bom + csv.join('\n')], { type: 'text/csv;charset=utf-8' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `orders_${exportType}_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
 
   if (!isLoggedIn) {
     return (
@@ -298,7 +447,7 @@ export default function Admin() {
       <div className="w-64 bg-white shadow-lg p-4 fixed h-full">
         <h1 className="text-2xl font-bold mb-8 text-gray-800">Gsaheb Cafe Admin</h1>
         <nav>
-          {['Pending Orders', 'Menu Management', 'Data Analytics'].map(tab => (
+          {['Pending Orders', 'Order History', 'Menu Management', 'Data Analytics'].map(tab => (
             <button
               key={tab}
               className={`w-full text-left py-3 px-4 mb-2 rounded-lg flex items-center gap-2 ${
@@ -308,6 +457,7 @@ export default function Admin() {
               aria-current={activeTab === tab ? 'page' : undefined}
             >
               {tab === 'Pending Orders' && <ClipboardDocumentListIcon className="h-5 w-5" />}
+              {tab === 'Order History' && <ClockIcon className="h-5 w-5" />}
               {tab === 'Menu Management' && <PlusIcon className="h-5 w-5" />}
               {tab === 'Data Analytics' && <ChartBarIcon className="h-5 w-5" />}
               {tab}
@@ -334,16 +484,7 @@ export default function Admin() {
         {/* Pending Orders Tab */}
         {activeTab === 'Pending Orders' && (
           <div>
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-2xl font-bold text-gray-800">Pending Orders</h2>
-              <button
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2"
-                onClick={exportTodaysOrders}
-                aria-label="Export today's orders as CSV"
-              >
-                Export Today's Orders
-              </button>
-            </div>
+            <h2 className="text-2xl font-bold text-gray-800 mb-6">Pending Orders</h2>
             {orders.length === 0 ? (
               <p className="text-gray-500 text-center">No pending orders</p>
             ) : (
@@ -363,6 +504,14 @@ export default function Admin() {
                           <p className="text-sm text-gray-500">Table {order.tables?.number || order.table_id}</p>
                         </div>
                         <div className="flex gap-2">
+                          <button
+                            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                            onClick={() => startEditing(order)}
+                            aria-label={`Edit order ${order.order_number || order.id}`}
+                          >
+                            <PencilSquareIcon className="h-5 w-5" />
+                            Edit
+                          </button>
                           <button
                             className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 flex items-center gap-2"
                             onClick={() => markAsPaid(order.id)}
@@ -407,6 +556,280 @@ export default function Admin() {
                 })}
               </div>
             )}
+          </div>
+        )}
+
+        {/* Edit Order Modal */}
+        {editingOrder && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+            <div className="bg-white p-6 rounded-lg max-w-2xl w-full">
+              <h3 className="text-xl font-bold mb-4">Edit Order #{editingOrder.order_number || editingOrder.id}</h3>
+              <table className="w-full mb-4">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-2">Item</th>
+                    <th className="text-right py-2">Qty</th>
+                    <th className="text-right py-2">Price</th>
+                    <th className="text-center py-2">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {editedItems.map((item, index) => (
+                    <tr key={index}>
+                      <td className="py-2">{item.name}</td>
+                      <td className="text-right py-2">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            className="bg-gray-200 px-2 py-1 rounded"
+                            onClick={() => updateQuantity(index, -1)}
+                            aria-label={`Decrease quantity for ${item.name}`}
+                          >
+                            -
+                          </button>
+                          <span>{item.quantity || 1}</span>
+                          <button
+                            className="bg-gray-200 px-2 py-1 rounded"
+                            onClick={() => updateQuantity(index, 1)}
+                            aria-label={`Increase quantity for ${item.name}`}
+                          >
+                            +
+                          </button>
+                        </div>
+                      </td>
+                      <td className="text-right py-2">₹{(item.price * (item.quantity || 1)).toFixed(2)}</td>
+                      <td className="text-center py-2">
+                        <button
+                          className="text-red-600 hover:text-red-800"
+                          onClick={() => removeItem(index)}
+                          aria-label={`Remove ${item.name}`}
+                        >
+                          <TrashIcon className="h-5 w-5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="mb-4">
+                <label className="block text-sm font-medium mb-1">Add Item</label>
+                <select
+                  className="border p-2 w-full rounded-lg"
+                  onChange={(e) => addItem(Number(e.target.value))}
+                  value=""
+                  aria-label="Add item to order"
+                >
+                  <option value="">Select item</option>
+                  {menuItems.filter(item => item.is_available).map(item => (
+                    <option key={item.id} value={item.id}>{item.name} (₹{item.price.toFixed(2)})</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex justify-end gap-2">
+                <button
+                  className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600"
+                  onClick={cancelEdit}
+                  aria-label="Cancel edit"
+                >
+                  Cancel
+                </button>
+                <button
+                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+                  onClick={saveOrder}
+                  aria-label="Save order changes"
+                >
+                  Update Order
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Order History Tab */}
+        {activeTab === 'Order History' && (
+          <div>
+            <h2 className="text-2xl font-bold text-gray-800 mb-6">Order History</h2>
+            <div className="bg-white p-6 rounded-lg shadow-md mb-6">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Date Range</label>
+                  <select
+                    className="border p-2 w-full rounded-lg"
+                    value={historyFilters.dateRange}
+                    onChange={(e) => setHistoryFilters({ ...historyFilters, dateRange: e.target.value, page: 1 })}
+                    aria-label="Date range filter"
+                  >
+                    <option value="today">Today</option>
+                    <option value="yesterday">Yesterday</option>
+                    <option value="last7days">Last 7 Days</option>
+                    <option value="custom">Custom Range</option>
+                  </select>
+                  {historyFilters.dateRange === 'custom' && (
+                    <div className="mt-2 flex gap-2">
+                      <DatePicker
+                        selected={historyFilters.customStart}
+                        onChange={date => setHistoryFilters({ ...historyFilters, customStart: date, page: 1 })}
+                        className="border p-2 rounded-lg w-full"
+                        aria-label="Custom start date"
+                      />
+                      <DatePicker
+                        selected={historyFilters.customEnd}
+                        onChange={date => setHistoryFilters({ ...historyFilters, customEnd: date, page: 1 })}
+                        className="border p-2 rounded-lg w-full"
+                        aria-label="Custom end date"
+                      />
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Status</label>
+                  <select
+                    multiple
+                    className="border p-2 w-full rounded-lg"
+                    value={historyFilters.statuses}
+                    onChange={(e) => setHistoryFilters({
+                      ...historyFilters,
+                      statuses: Array.from(e.target.selectedOptions, option => option.value),
+                      page: 1
+                    })}
+                    aria-label="Status filter"
+                  >
+                    <option value="pending">Pending</option>
+                    <option value="paid">Paid</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Search</label>
+                  <input
+                    type="text"
+                    placeholder="Order ID or Table Number"
+                    value={historyFilters.search}
+                    onChange={(e) => setHistoryFilters({ ...historyFilters, search: e.target.value, page: 1 })}
+                    className="border p-2 w-full rounded-lg"
+                    aria-label="Search orders"
+                  />
+                </div>
+              </div>
+            </div>
+            {historyOrders.length === 0 ? (
+              <p className="text-gray-500 text-center">No orders found</p>
+            ) : (
+              <>
+                <table className="w-full bg-white rounded-lg shadow-md">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left py-3 px-4">Order ID</th>
+                      <th className="text-left py-3 px-4">Date</th>
+                      <th className="text-left py-3 px-4">Table</th>
+                      <th className="text-right py-3 px-4">Total</th>
+                      <th className="text-left py-3 px-4">Status</th>
+                      <th className="text-center py-3 px-4">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {historyOrders.slice(
+                      (historyFilters.page - 1) * historyFilters.perPage,
+                      historyFilters.page * historyFilters.perPage
+                    ).map(order => {
+                      const total = order.items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0);
+                      return (
+                        <tr key={order.id} className="border-b">
+                          <td className="py-3 px-4">{order.order_number || order.id}</td>
+                          <td className="py-3 px-4">{new Date(order.created_at).toLocaleString('en-IN')}</td>
+                          <td className="py-3 px-4">{order.tables?.number || order.table_id}</td>
+                          <td className="text-right py-3 px-4">₹{total.toFixed(2)}</td>
+                          <td className="py-3 px-4">{order.status}</td>
+                          <td className="text-center py-3 px-4 flex gap-2 justify-center">
+                            <button
+                              className="text-blue-600 hover:text-blue-800"
+                              onClick={() => setViewingOrder(order)}
+                              aria-label={`View invoice for ${order.order_number || order.id}`}
+                            >
+                              View
+                            </button>
+                            <button
+                              className="text-gray-600 hover:text-gray-800"
+                              onClick={() => printBill(order)}
+                              aria-label={`Print invoice for ${order.order_number || order.id}`}
+                            >
+                              <PrinterIcon className="h-5 w-5" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                <div className="flex justify-between mt-4">
+                  <button
+                    className="bg-gray-500 text-white px-4 py-2 rounded-lg disabled:opacity-50"
+                    onClick={() => setHistoryFilters({ ...historyFilters, page: historyFilters.page - 1 })}
+                    disabled={historyFilters.page === 1}
+                    aria-label="Previous page"
+                  >
+                    Previous
+                  </button>
+                  <span>Page {historyFilters.page} of {Math.ceil(historyOrders.length / historyFilters.perPage)}</span>
+                  <button
+                    className="bg-gray-500 text-white px-4 py-2 rounded-lg disabled:opacity-50"
+                    onClick={() => setHistoryFilters({ ...historyFilters, page: historyFilters.page + 1 })}
+                    disabled={historyFilters.page * historyFilters.perPage >= historyOrders.length}
+                    aria-label="Next page"
+                  >
+                    Next
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* View Invoice Modal */}
+        {viewingOrder && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+            <div className="bg-white p-6 rounded-lg max-w-2xl w-full">
+              <h3 className="text-xl font-bold mb-4">Invoice #{viewingOrder.order_number || viewingOrder.id}</h3>
+              <p className="text-sm text-gray-500 mb-2">{new Date(viewingOrder.created_at).toLocaleString('en-IN')}</p>
+              <p className="text-sm text-gray-500 mb-4">Table {viewingOrder.tables?.number || viewingOrder.table_id}</p>
+              <table className="w-full mb-4">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-2">Item</th>
+                    <th className="text-right py-2">Qty</th>
+                    <th className="text-right py-2">Price</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {viewingOrder.items.map((item, index) => (
+                    <tr key={index}>
+                      <td className="py-2">{item.name}</td>
+                      <td className="text-right py-2">{item.quantity || 1}</td>
+                      <td className="text-right py-2">₹{(item.price * (item.quantity || 1)).toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="flex justify-between font-semibold">
+                <span>Total</span>
+                <span>₹{viewingOrder.items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0).toFixed(2)}</span>
+              </div>
+              <div className="flex justify-end gap-2 mt-4">
+                <button
+                  className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600"
+                  onClick={() => setViewingOrder(null)}
+                  aria-label="Close invoice"
+                >
+                  Close
+                </button>
+                <button
+                  className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 flex items-center gap-2"
+                  onClick={() => printBill(viewingOrder)}
+                  aria-label={`Print invoice for ${viewingOrder.order_number || viewingOrder.id}`}
+                >
+                  <PrinterIcon className="h-5 w-5" />
+                  Print
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -511,41 +934,119 @@ export default function Admin() {
         {activeTab === 'Data Analytics' && (
           <div>
             <h2 className="text-2xl font-bold text-gray-800 mb-6">Data Analytics</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              <div className="bg-white p-6 rounded-lg shadow-md">
-                <h3 className="text-lg font-semibold mb-2">Total Orders Today</h3>
-                <p className="text-3xl font-bold text-blue-600">{analytics.totalOrders}</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+              <div className="bg-gradient-to-r from-blue-500 to-blue-700 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">
+                  <ClipboardDocumentListIcon className="h-6 w-6" />
+                  Total Orders Today
+                </h3>
+                <p className="text-4xl font-bold">{analytics.totalOrders}</p>
               </div>
-              <div className="bg-white p-6 rounded-lg shadow-md">
-                <h3 className="text-lg font-semibold mb-2">Total Revenue Today</h3>
-                <p className="text-3xl font-bold text-green-600">₹{analytics.totalRevenue.toFixed(2)}</p>
+              <div className="bg-gradient-to-r from-green-500 to-green-700 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">
+                  <ChartBarIcon className="h-6 w-6" />
+                  Total Revenue Today
+                </h3>
+                <p className="text-4xl font-bold">₹{analytics.totalRevenue.toFixed(2)}</p>
               </div>
-              <div className="bg-white p-6 rounded-lg shadow-md">
-                <h3 className="text-lg font-semibold mb-2">Top 5 Items</h3>
-                <ul>
-                  {analytics.topItems.map((item, index) => (
-                    <li key={index} className="flex justify-between">
-                      <span>{item.name}</span>
-                      <span>{item.count} sold</span>
-                    </li>
-                  ))}
-                </ul>
+              <div className="bg-gradient-to-r from-purple-500 to-purple-700 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">
+                  <PlusIcon className="h-6 w-6" />
+                  Most Sold Item
+                </h3>
+                <p className="text-xl font-bold">{analytics.mostSoldItem[0]}</p>
+                <p className="text-sm">{analytics.mostSoldItem[1]} sold</p>
               </div>
-              <div className="bg-white p-6 rounded-lg shadow-md col-span-1 md:col-span-2 lg:col-span-3">
-                <h3 className="text-lg font-semibold mb-2">Orders by Hour</h3>
-                <div className="flex gap-2 flex-wrap">
-                  {analytics.ordersByHour.map((count, hour) => (
-                    <div key={hour} className="text-center">
-                      <p className="text-sm">{hour}:00</p>
-                      <div
-                        className="bg-blue-600 w-8 h-16 rounded"
-                        style={{ height: `${count * 10}px` }}
-                      ></div>
-                      <p className="text-sm">{count}</p>
-                    </div>
-                  ))}
+              <div className="bg-gradient-to-r from-orange-500 to-orange-700 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">
+                  <ClockIcon className="h-6 w-6" />
+                  Peak Hour
+                </h3>
+                <p className="text-xl font-bold">{analytics.peakHour}:00–{analytics.peakHour + 1}:00</p>
+                <p className="text-sm">{orders.filter(o => new Date(o.created_at).getHours() === analytics.peakHour).length} orders</p>
+              </div>
+            </div>
+            <div className="bg-white p-6 rounded-lg shadow-md">
+              <h3 className="text-lg font-semibold mb-4">Export Orders</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Date Range</label>
+                  <div className="flex gap-2">
+                    <DatePicker
+                      selected={exportFilters.startDate}
+                      onChange={date => setExportFilters({ ...exportFilters, startDate: date })}
+                      className="border p-2 rounded-lg w-full"
+                      aria-label="Export start date"
+                    />
+                    <DatePicker
+                      selected={exportFilters.endDate}
+                      onChange={date => setExportFilters({ ...exportFilters, endDate: date })}
+                      className="border p-2 rounded-lg w-full"
+                      aria-label="Export end date"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Status</label>
+                  <select
+                    multiple
+                    className="border p-2 w-full rounded-lg"
+                    value={exportFilters.statuses}
+                    onChange={(e) => setExportFilters({
+                      ...exportFilters,
+                      statuses: Array.from(e.target.selectedOptions, option => option.value)
+                    })}
+                    aria-label="Export status filter"
+                  >
+                    <option value="pending">Pending</option>
+                    <option value="paid">Paid</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Search</label>
+                  <input
+                    type="text"
+                    placeholder="Order ID or Table Number"
+                    value={exportFilters.search}
+                    onChange={(e) => setExportFilters({ ...exportFilters, search: e.target.value })}
+                    className="border p-2 w-full rounded-lg"
+                    aria-label="Export search"
+                  />
                 </div>
               </div>
+              <div className="flex gap-4">
+                <label className="flex items-center">
+                  <input
+                    type="radio"
+                    name="exportType"
+                    value="order"
+                    checked={exportType === 'order'}
+                    onChange={() => setExportType('order')}
+                    className="mr-2"
+                    aria-label="Export order-level"
+                  />
+                  Order-Level
+                </label>
+                <label className="flex items-center">
+                  <input
+                    type="radio"
+                    name="exportType"
+                    value="item"
+                    checked={exportType === 'item'}
+                    onChange={() => setExportType('item')}
+                    className="mr-2"
+                    aria-label="Export item-level"
+                  />
+                  Item-Level
+                </label>
+              </div>
+              <button
+                className="mt-4 bg-blue-600 text-white px-4 py-3 rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                onClick={exportOrders}
+                aria-label="Export orders as CSV"
+              >
+                Export Orders
+              </button>
             </div>
           </div>
         )}
