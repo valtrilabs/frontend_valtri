@@ -16,7 +16,7 @@ export default function Order() {
       try {
         const { data, error } = await supabase
           .from('orders')
-          .select('*, tables(number)')
+          .select('id, order_number, created_at, table_id, items, status, tables(number)')
           .eq('id', orderId)
           .single();
         if (error) {
@@ -73,11 +73,16 @@ export default function Order() {
   };
 
   // Calculate total
-  const total = order?.items.reduce((sum, item) => sum + item.price, 0) || 0;
+  const total = order?.items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0) || 0;
 
   if (loading) return <div className="text-center mt-10" role="status">Loading order...</div>;
   if (error) return <div className="text-center mt-10 text-red-500" role="alert">{error} Redirecting...</div>;
   if (!order) return <div className="text-center mt-10" role="alert">Order not found</div>;
+
+  const formattedDate = new Date(order.created_at).toLocaleString('en-IN', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  });
 
   return (
     <div className="min-h-screen bg-gray-100 p-4">
@@ -85,6 +90,11 @@ export default function Order() {
         Order Summary - Table {order.tables.number}
       </h1>
       <div className="bg-white p-6 rounded-lg shadow">
+        <div className="mb-4">
+          <p className="text-lg font-semibold">Order #{order.order_number || order.id}</p>
+          <p className="text-sm text-gray-500">Placed on {formattedDate}</p>
+          <p className="text-sm text-gray-500">Table {order.tables?.number || order.table_id}</p>
+        </div>
         <p className="text-green-600 font-semibold mb-4">
           Thank you for ordering! Please wait 10 minutes for your order to arrive.
         </p>
@@ -92,8 +102,10 @@ export default function Order() {
         <ul className="mb-4">
           {order.items.map((item, index) => (
             <li key={index} className="flex justify-between">
-              <span>{item.name}</span>
-              <span>₹{item.price.toFixed(2)}</span>
+              <span>
+                {item.name} {item.quantity > 1 ? `x${item.quantity}` : ''}
+              </span>
+              <span>₹{(item.price * (item.quantity || 1)).toFixed(2)}</span>
             </li>
           ))}
         </ul>

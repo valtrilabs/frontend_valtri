@@ -155,26 +155,40 @@ export default function Admin() {
           <p>No pending orders</p>
         ) : (
           <div className="grid gap-4">
-            {orders.map(order => (
-              <div key={order.id} className="bg-white p-4 rounded shadow">
-                <p>Table {order.tables.number}</p>
-                <ul>
-                  {order.items.map((item, index) => (
-                    <li key={index} className="flex justify-between">
-                      <span>{item.name}</span>
-                      <span>₹{item.price.toFixed(2)}</span>
-                    </li>
-                  ))}
-                </ul>
-                <button
-                  className="mt-2 bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
-                  onClick={() => markAsPaid(order.id)}
-                  aria-label={`Mark order ${order.id} as paid`}
-                >
-                  Mark as Paid
-                </button>
-              </div>
-            ))}
+            {orders.map(order => {
+              const total = order.items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0);
+              const formattedDate = new Date(order.created_at).toLocaleString('en-IN', {
+                dateStyle: 'medium',
+                timeStyle: 'short',
+              });
+              return (
+                <div key={order.id} className="bg-white p-4 rounded shadow">
+                  <div className="mb-2">
+                    <p className="font-semibold">Order #{order.order_number || order.id}</p>
+                    <p className="text-sm text-gray-500">{formattedDate}</p>
+                    <p className="text-sm text-gray-500">Table {order.tables?.number || order.table_id}</p>
+                  </div>
+                  <ul>
+                    {order.items.map((item, index) => (
+                      <li key={index} className="flex justify-between">
+                        <span>
+                          {item.name} {item.quantity > 1 ? `x${item.quantity}` : ''}
+                        </span>
+                        <span>₹{(item.price * (item.quantity || 1)).toFixed(2)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-2 font-semibold">Total: ₹{total.toFixed(2)}</p>
+                  <button
+                    className="mt-2 bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
+                    onClick={() => markAsPaid(order.id)}
+                    aria-label={`Mark order ${order.order_number || order.id} as paid`}
+                  >
+                    Mark as Paid
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
         <button
