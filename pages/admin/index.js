@@ -5,10 +5,12 @@ import { PrinterIcon, ChartBarIcon, ClipboardDocumentListIcon, PlusIcon, TrashIc
 import Escpos from 'escpos-buffer';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
+import { formatInTimeZone } from 'date-fns-tz';
 
 export default function Admin() {
   const router = useRouter();
   const [orders, setOrders] = useState([]);
+  const [paidOrders, setPaidOrders] = useState([]); // New state for paid orders
   const [menuItems, setMenuItems] = useState([]);
   const [newItem, setNewItem] = useState({ name: '', category: '', price: '', is_available: true });
   const [email, setEmail] = useState('');
@@ -26,8 +28,8 @@ export default function Admin() {
     customStart: new Date(),
     customEnd: new Date(),
     statuses: ['paid'],
-    searchInput: '', // Temporary input for search
-    search: '', // Actual search term to trigger fetch
+    searchInput: '',
+    search: '',
     page: 1,
     perPage: 10
   });
@@ -66,6 +68,33 @@ export default function Admin() {
       }
     }
     if (isLoggedIn && activeTab === 'Pending Orders') fetchOrders();
+  }, [isLoggedIn, activeTab]);
+
+  // Fetch paid orders for analytics
+  useEffect(() => {
+    async function fetchPaidOrders() {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const todayEnd = new Date();
+        todayEnd.setHours(23, 59, 59, 999);
+        
+        const params = new URLSearchParams({
+          startDate: todayStart.toISOString(),
+          endDate: todayEnd.toISOString(),
+          statuses: 'paid'
+        });
+        
+        const response = await fetch(`${apiUrl}/api/admin/orders/history?${params}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        setPaidOrders(data);
+      } catch (err) {
+        setError(`Failed to fetch paid orders: ${err.message}`);
+      }
+    }
+    if (isLoggedIn && activeTab === 'Data Analytics') fetchPaidOrders();
   }, [isLoggedIn, activeTab]);
 
   // Fetch menu items
@@ -136,6 +165,32 @@ export default function Admin() {
     if (isLoggedIn && activeTab === 'Order History') fetchHistory();
   }, [isLoggedIn, activeTab, historyFilters.search, historyFilters.dateRange, historyFilters.statuses, historyFilters.customStart, historyFilters.customEnd]);
 
+  // Real-time subscription for new orders to trigger KOT printing
+  useEffect(() => {
+    if (!isLoggedIn) return;
+
+    const subscription = supabase
+      .channel('orders-channel')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, async (payload) => {
+        const newOrder = payload.new;
+        // Fetch full order details including table and items
+        try {
+          const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
+          const response = await fetch(`${apiUrl}/api/orders/${newOrder.id}`);
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const orderDetails = await response.json();
+          await printKOT(orderDetails);
+        } catch (err) {
+          setError(`Failed to fetch new order for KOT: ${err.message}`);
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(subscription);
+    };
+  }, [isLoggedIn]);
+
   // Admin login
   const handleLogin = async () => {
     try {
@@ -154,6 +209,21 @@ export default function Admin() {
       const response = await fetch(`${apiUrl}/api/orders/${orderId}/pay`, { method: 'PATCH' });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       setOrders(orders.filter(order => order.id !== orderId));
+      // Refresh paid orders for analytics
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      const todayEnd = new Date();
+      todayEnd.setHours(23, 59, 59, 999);
+      const params = new URLSearchParams({
+        startDate: todayStart.toISOString(),
+        endDate: todayEnd.toISOString(),
+        statuses: 'paid'
+      });
+      const paidResponse = await fetch(`${apiUrl}/api/admin/orders/history?${params}`);
+      if (paidResponse.ok) {
+        const paidData = await paidResponse.json();
+        setPaidOrders(paidData);
+      }
     } catch (err) {
       setError(`Failed to mark order as paid: ${err.message}`);
     }
@@ -265,19 +335,123 @@ export default function Admin() {
     }
   };
 
-  // Print bill
+  // Print KOT (Kitchen Order Ticket)
+  const printKOT = async (order) => {
+    try {
+      const devices = await navigator.usb.getDevices();
+      const kitchen1Printer = devices.find(d => d.vendorId === 0x04b8 && d.productId === 0x0e15); // Kitchen 1
+      const kitchen2Printer = devices.find(d => d.vendorId === 0x04b8 && d.productId === 0x0e16); // Kitchen 2
+
+      // Split items by category
+      const chineseItems = [];
+      const otherItems = [];
+      for (const item of order.items) {
+        const menuItem = menuItems.find(m => m.id === item.item_id);
+        if (menuItem && menuItem.category.toLowerCase() === 'chinese') {
+          chineseItems.push({ ...item, category: menuItem.category });
+        } else {
+          otherItems.push({ ...item, category: menuItem ? menuItem.category : 'Unknown' });
+        }
+      }
+
+      // Print to Kitchen 1 (non-Chinese items)
+      if (otherItems.length > 0 && kitchen1Printer) {
+        await kitchen1Printer.open();
+        await kitchen1Printer.selectConfiguration(1);
+        await kitchen1Printer.claimInterface(0);
+
+        const writer = Escpos.getUSBPrinter(kitchen1Printer);
+        writer
+          .init()
+          .align('center')
+          .size(2, 2)
+          .text('KOT - Kitchen 1')
+          .size(1, 1)
+          .text(`Order #${order.order_number || order.id}`)
+          .text(`Table ${order.tables?.number || order.table_id}`)
+          .text(`Date: ${formatInTimeZone(new Date(order.created_at), 'Asia/Kolkata', 'dd/MM/yyyy HH:mm:ss')}`)
+          .newline()
+          .align('left')
+          .text('--------------------------------')
+          .tableCustom([
+            { text: 'Item', align: 'left', width: 0.6 },
+            { text: 'Qty', align: 'right', width: 0.4 }
+          ]);
+
+        otherItems.forEach(item => {
+          writer.tableCustom([
+            { text: item.name.slice(0, 20), align: 'left', width: 0.6 },
+            { text: item.quantity || 1, align: 'right', width: 0.4 }
+          ]);
+        });
+
+        writer
+          .newline()
+          .cut()
+          .close();
+
+        const buffer = writer.buffer();
+        await kitchen1Printer.transferOut(1, buffer);
+        await kitchen1Printer.close();
+      }
+
+      // Print to Kitchen 2 (Chinese items)
+      if (chineseItems.length > 0 && kitchen2Printer) {
+        await kitchen2Printer.open();
+        await kitchen2Printer.selectConfiguration(1);
+        await kitchen2Printer.claimInterface(0);
+
+        const writer = Escpos.getUSBPrinter(kitchen2Printer);
+        writer
+          .init()
+          .align('center')
+          .size(2, 2)
+          .text('KOT - Kitchen 2')
+          .size(1, 1)
+          .text(`Order #${order.order_number || order.id}`)
+          .text(`Table ${order.tables?.number || order.table_id}`)
+          .text(`Date: ${formatInTimeZone(new Date(order.created_at), 'Asia/Kolkata', 'dd/MM/yyyy HH:mm:ss')}`)
+          .newline()
+          .align('left')
+          .text('--------------------------------')
+          .tableCustom([
+            { text: 'Item', align: 'left', width: 0.6 },
+            { text: 'Qty', align: 'right', width: 0.4 }
+          ]);
+
+        chineseItems.forEach(item => {
+          writer.tableCustom([
+            { text: item.name.slice(0, 20), align: 'left', width: 0.6 },
+            { text: item.quantity || 1, align: 'right', width: 0.4 }
+          ]);
+        });
+
+        writer
+          .newline()
+          .cut()
+          .close();
+
+        const buffer = writer.buffer();
+        await kitchen2Printer.transferOut(1, buffer);
+        await kitchen2Printer.close();
+      }
+    } catch (err) {
+      setError(`Failed to print KOT: ${err.message}. Ensure printers are connected and support WebUSB.`);
+    }
+  };
+
+  // Print bill (Admin printer)
   const printBill = async (order) => {
     try {
       const devices = await navigator.usb.getDevices();
-      const device = devices.find(d => d.vendorId === 0x04b8) ||
-        await navigator.usb.requestDevice({ filters: [{ vendorId: 0x04b8 }] });
-      if (!device) throw new Error('No compatible printer found');
+      const adminPrinter = devices.find(d => d.vendorId === 0x04b8 && d.productId === 0x0e17); // Admin printer
+      if (!adminPrinter) throw new Error('No compatible admin printer found');
 
-      await device.open();
-      await device.selectConfiguration(1);
-      await device.claimInterface(0);
+      await adminPrinter.open();
+      await adminPrinter.selectConfiguration(1);
+      await adminPrinter.claimInterface(0);
 
-      const writer = Escpos.getUSBPrinter(device);
+      const writer = Escpos.getUSBPrinter(adminPrinter);
       writer
         .init()
         .align('center')
@@ -286,7 +460,7 @@ export default function Admin() {
         .size(1, 1)
         .text(`Order #${order.order_number || order.id}`)
         .text(`Table ${order.tables?.number || order.table_id}`)
-        .text(`Date: ${new Date(order.created_at).toLocaleString('en-IN')}`)
+        .text(`Date: ${formatInTimeZone(new Date(order.created_at), 'Asia/Kolkata', 'dd/MM/yyyy HH:mm:ss')}`)
         .newline()
         .align('left')
         .text('--------------------------------')
@@ -320,18 +494,18 @@ export default function Admin() {
         .close();
 
       const buffer = writer.buffer();
-      await device.transferOut(1, buffer);
-      await device.close();
+      await adminPrinter.transferOut(1, buffer);
+      await adminPrinter.close();
     } catch (err) {
-      setError(`Failed to print bill: ${err.message}. Ensure printer is connected and supports WebUSB.`);
+      setError(`Failed to print bill: ${err.message}. Ensure admin printer is connected and supports WebUSB.`);
     }
   };
 
-  // Analytics calculations
+  // Analytics calculations (use paidOrders)
   const getAnalytics = () => {
-    const today = new Date().toISOString().split('T')[0];
-    const todaysOrders = orders.filter(order =>
-      new Date(order.created_at).toISOString().split('T')[0] === today
+    const today = formatInTimeZone(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd');
+    const todaysOrders = paidOrders.filter(order =>
+      formatInTimeZone(new Date(order.created_at), 'Asia/Kolkata', 'yyyy-MM-dd') === today
     );
 
     const totalOrders = todaysOrders.length;
@@ -350,7 +524,7 @@ export default function Admin() {
 
     const ordersByHour = Array(24).fill(0);
     todaysOrders.forEach(order => {
-      const hour = new Date(order.created_at).getHours();
+      const hour = parseInt(formatInTimeZone(new Date(order.created_at), 'Asia/Kolkata', 'HH'));
       ordersByHour[hour]++;
     });
     const peakHour = ordersByHour.indexOf(Math.max(...ordersByHour));
@@ -380,8 +554,8 @@ export default function Admin() {
         'Order ID,Date,Time,Table Number,Status,Total Amount,Items',
         ...filteredOrders.map(order => {
           const total = order.items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0);
-          const date = new Date(order.created_at).toLocaleDateString('en-IN');
-          const time = new Date(order.created_at).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' });
+          const date = formatInTimeZone(new Date(order.created_at), 'Asia/Kolkata', 'dd/MM/yyyy');
+          const time = formatInTimeZone(new Date(order.created_at), 'Asia/Kolkata', 'HH:mm');
           const items = order.items.map(item => `${item.name} x${item.quantity || 1}`).join(', ');
           return `${order.order_number || order.id},${date},${time},${order.tables?.number || order.table_id},${order.status},${total.toFixed(2)},${items}`;
         })
@@ -390,7 +564,7 @@ export default function Admin() {
       csv = [
         'Order ID,Date,Item Name,Quantity,Unit Price,Total Price,Status,Table Number',
         ...filteredOrders.flatMap(order => {
-          const date = new Date(order.created_at).toLocaleDateString('en-IN');
+          const date = formatInTimeZone(new Date(order.created_at), 'Asia/Kolkata', 'dd/MM/yyyy');
           return order.items.map(item => {
             const totalPrice = (item.price * (item.quantity || 1)).toFixed(2);
             return `${order.order_number || order.id},${date},${item.name},${item.quantity || 1},${item.price.toFixed(2)},${totalPrice},${order.status},${order.tables?.number || order.table_id}`;
@@ -404,7 +578,7 @@ export default function Admin() {
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `orders_${exportType}_${new Date().toISOString().split('T')[0]}.csv`;
+    a.download = `orders_${exportType}_${formatInTimeZone(new Date(), 'Asia/Kolkata', 'yyyy-MM-dd')}.csv`;
     a.click();
     window.URL.revokeObjectURL(url);
   };
@@ -522,10 +696,7 @@ export default function Admin() {
               <div className="grid gap-6">
                 {orders.map(order => {
                   const total = order.items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0);
-                  const formattedDate = new Date(order.created_at).toLocaleString('en-IN', {
-                    dateStyle: 'medium',
-                    timeStyle: 'short',
-                  });
+                  const formattedDate = formatInTimeZone(new Date(order.created_at), 'Asia/Kolkata', 'dd/MM/yyyy HH:mm:ss');
                   return (
                     <div key={order.id} className="bg-white p-6 rounded-lg shadow-md">
                       <div className="flex justify-between items-center mb-4">
@@ -763,7 +934,7 @@ export default function Admin() {
                       return (
                         <tr key={order.id} className="border-b">
                           <td className="py-3 px-4">{order.order_number || order.id}</td>
-                          <td className="py-3 px-4">{new Date(order.created_at).toLocaleString('en-IN')}</td>
+                          <td className="py-3 px-4">{formatInTimeZone(new Date(order.created_at), 'Asia/Kolkata', 'dd/MM/yyyy HH:mm:ss')}</td>
                           <td className="py-3 px-4">{order.tables?.number || order.table_id}</td>
                           <td className="text-right py-3 px-4">₹{total.toFixed(2)}</td>
                           <td className="py-3 px-4">{order.status}</td>
@@ -817,7 +988,7 @@ export default function Admin() {
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
             <div className="bg-white p-6 rounded-lg max-w-2xl w-full">
               <h3 className="text-xl font-bold mb-4">Invoice #{viewingOrder.order_number || viewingOrder.id}</h3>
-              <p className="text-sm text-gray-500 mb-2">{new Date(viewingOrder.created_at).toLocaleString('en-IN')}</p>
+              <p className="text-sm text-gray-500 mb-2">{formatInTimeZone(new Date(viewingOrder.created_at), 'Asia/Kolkata', 'dd/MM/yyyy HH:mm:ss')}</p>
               <p className="text-sm text-gray-500 mb-4">Table {viewingOrder.tables?.number || viewingOrder.table_id}</p>
               <table className="w-full mb-4">
                 <thead>
@@ -992,7 +1163,7 @@ export default function Admin() {
                   Peak Hour
                 </h3>
                 <p className="text-xl font-bold">{analytics.peakHour}:00–{analytics.peakHour + 1}:00</p>
-                <p className="text-sm">{orders.filter(o => new Date(o.created_at).getHours() === analytics.peakHour).length} orders</p>
+                <p className="text-sm">{paidOrders.filter(o => parseInt(formatInTimeZone(new Date(o.created_at), 'Asia/Kolkata', 'HH')) === analytics.peakHour).length} orders</p>
               </div>
             </div>
             <div className="bg-white p-6 rounded-lg shadow-md">
