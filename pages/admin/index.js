@@ -17,7 +17,9 @@ export default function Admin() {
   const [password, setPassword] = useState('');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [error, setError] = useState(null);
-  const [activeTab, setActiveTab] = useState('Pending Orders');
+  const [activeTab, setActiveTab] = useState(() => {
+    return typeof window !== 'undefined' ? localStorage.getItem('activeTab') || 'Pending Orders' : 'Pending Orders';
+  });
   const [editingOrder, setEditingOrder] = useState(null);
   const [editedItems, setEditedItems] = useState([]);
   const [historyOrders, setHistoryOrders] = useState([]);
@@ -40,10 +42,15 @@ export default function Admin() {
   });
   const [viewingOrder, setViewingOrder] = useState(null);
 
-  // Helper function to convert UTC to IST and format
+  // Persist activeTab to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('activeTab', activeTab);
+  }, [activeTab]);
+
+  // Helper functions for IST conversion
   const formatToIST = (date) => {
     const utcDate = new Date(date);
-    const istDate = add(utcDate, { hours: 5, minutes: 30 }); // IST is UTC+5:30
+    const istDate = add(utcDate, { hours: 5, minutes: 30 });
     return format(istDate, 'dd/MM/yyyy HH:mm:ss');
   };
 
@@ -65,6 +72,7 @@ export default function Admin() {
     return format(istDate, 'yyyy-MM-dd');
   };
 
+  // Check if admin is logged in
   useEffect(() => {
     const checkSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -74,6 +82,7 @@ export default function Admin() {
     checkSession();
   }, [router]);
 
+  // Fetch pending orders (initial fetch)
   useEffect(() => {
     async function fetchOrders() {
       try {
@@ -89,6 +98,40 @@ export default function Admin() {
     if (isLoggedIn && activeTab === 'Pending Orders') fetchOrders();
   }, [isLoggedIn, activeTab]);
 
+  // Real-time updates for Pending Orders tab
+  useEffect(() => {
+    if (!isLoggedIn || activeTab !== 'Pending Orders') return;
+
+    const subscription = supabase
+      .channel('pending-orders-channel')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, async (payload) => {
+        const newOrder = payload.new;
+        if (newOrder.status === 'pending') {
+          try {
+            const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
+            const response = await fetch(`${apiUrl}/api/orders/${newOrder.id}`);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const orderDetails = await response.json();
+            setOrders(prevOrders => [...prevOrders, orderDetails]);
+          } catch (err) {
+            setError(`Failed to fetch new order: ${err.message}`);
+          }
+        }
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, (payload) => {
+        const updatedOrder = payload.new;
+        if (updatedOrder.status !== 'pending') {
+          setOrders(prevOrders => prevOrders.filter(order => order.id !== updatedOrder.id));
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(subscription);
+    };
+  }, [isLoggedIn, activeTab]);
+
+  // Fetch paid orders for analytics
   useEffect(() => {
     async function fetchPaidOrders() {
       try {
@@ -115,6 +158,7 @@ export default function Admin() {
     if (isLoggedIn && activeTab === 'Data Analytics') fetchPaidOrders();
   }, [isLoggedIn, activeTab]);
 
+  // Fetch menu items
   useEffect(() => {
     async function fetchMenu() {
       try {
@@ -128,6 +172,7 @@ export default function Admin() {
     if (isLoggedIn) fetchMenu();
   }, [isLoggedIn]);
 
+  // Fetch order history
   const fetchHistory = async () => {
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
@@ -181,6 +226,7 @@ export default function Admin() {
     if (isLoggedIn && activeTab === 'Order History') fetchHistory();
   }, [isLoggedIn, activeTab, historyFilters.search, historyFilters.dateRange, historyFilters.statuses, historyFilters.customStart, historyFilters.customEnd]);
 
+  // Real-time subscription for KOT printing
   useEffect(() => {
     if (!isLoggedIn) return;
 
