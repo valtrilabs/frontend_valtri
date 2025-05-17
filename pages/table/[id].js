@@ -18,35 +18,42 @@ export default function Table() {
   const [error, setError] = useState(null);
   const [addedItems, setAddedItems] = useState({}); // Track items showing "Added"
 
-  // Check if user has an active order
+  // Check if user has an active order or paid order
   useEffect(() => {
     async function checkActiveOrder() {
-      const orderId = localStorage.getItem('orderId');
-      if (orderId && !localStorage.getItem('appendOrder')) {
-        try {
-          const { data, error } = await supabase
-            .from('orders')
-            .select('id, status')
-            .eq('id', orderId)
-            .single();
-          if (error || !data) {
-            console.log('Invalid orderId, clearing localStorage:', orderId);
-            localStorage.removeItem('orderId');
-            return;
-          }
-          if (data.status === 'pending') {
-            router.push(`/order/${orderId}`);
-          } else {
-            localStorage.removeItem('orderId');
-          }
-        } catch (err) {
-          console.error('Error checking order:', err.message);
-          localStorage.removeItem('orderId');
+      if (!id) return;
+      try {
+        // Check for any orders (pending or paid) for this table
+        const { data, error } = await supabase
+          .from('orders')
+          .select('id, status')
+          .eq('table_id', parseInt(id))
+          .in('status', ['pending', 'paid'])
+          .order('created_at', { ascending: false })
+          .limit(1);
+        if (error) {
+          console.error('Error checking orders:', error.message);
+          throw error;
         }
+        if (data.length > 0) {
+          const order = data[0];
+          if (order.status === 'paid') {
+            localStorage.removeItem('orderId');
+            localStorage.removeItem('appendOrder');
+            router.replace('/blocked');
+          } else if (order.status === 'pending') {
+            localStorage.setItem('orderId', order.id);
+            router.replace(`/order/${order.id}`);
+          }
+        }
+      } catch (err) {
+        console.error('Error checking table orders:', err.message);
+        localStorage.removeItem('orderId');
+        localStorage.removeItem('appendOrder');
       }
     }
     checkActiveOrder();
-  }, [router]);
+  }, [id, router]);
 
   // Check for append order
   useEffect(() => {
@@ -128,7 +135,7 @@ export default function Table() {
       localStorage.setItem('orderId', order.id);
       setCart([]);
       setIsCartOpen(false);
-      router.push(`/order/${order.id}`);
+      router.replace(`/order/${order.id}`);
     } catch (err) {
       console.error('PlaceOrder error:', err.message);
       setError(`Failed to place order: ${err.message}`);
@@ -159,7 +166,7 @@ export default function Table() {
       localStorage.setItem('orderId', order.id);
       setCart([]);
       setIsCartOpen(false);
-      router.push(`/order/${order.id}`);
+      router.replace(`/order/${order.id}`);
     } catch (err) {
       console.error('UpdateOrder error:', err.message);
       setError(`Failed to update order: ${err.message}`);

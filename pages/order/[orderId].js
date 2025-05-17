@@ -23,16 +23,20 @@ export default function Order() {
           console.error('Fetch order error:', error.message);
           throw error;
         }
+        if (data.status === 'paid') {
+          localStorage.removeItem('orderId');
+          router.replace('/blocked');
+          return;
+        }
         setOrder(data);
         setLoading(false);
       } catch (err) {
         console.error('Fetch order failed:', err.message);
         setError('Failed to load order. The order may not exist or you lack access.');
         setLoading(false);
-        // Redirect to /blocked after 3 seconds
         setTimeout(() => {
           localStorage.removeItem('orderId');
-          router.push('/blocked');
+          router.replace('/blocked');
         }, 3000);
       }
     }
@@ -50,7 +54,7 @@ export default function Order() {
         payload => {
           if (payload.new.status === 'paid') {
             localStorage.removeItem('orderId');
-            router.push('/blocked');
+            router.replace('/blocked');
           } else {
             setOrder(payload.new);
           }

@@ -1,4 +1,20 @@
+import { useEffect } from 'react';
+
 export default function Blocked() {
+  useEffect(() => {
+    // Replace the current history entry with /blocked to prevent back navigation
+    window.history.replaceState(null, '', '/blocked');
+    
+    // Prevent back navigation by pushing /blocked again if back is pressed
+    const handlePopState = () => {
+      window.history.pushState(null, '', '/blocked');
+    };
+    window.addEventListener('popstate', handlePopState);
+
+    // Cleanup event listener on component unmount
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-100">
       <div className="text-center">
