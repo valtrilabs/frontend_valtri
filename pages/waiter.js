@@ -22,10 +22,10 @@ export default function Waiter() {
 
   // Fetch menu items
   const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
-  const { data: menu, error: fetchError, isLoading } = useSWR(`${apiUrl}/api/menu`, fetcher);
+  const { data: menu, error: menuError, isLoading: isMenuLoading } = useSWR(`${apiUrl}/api/menu`, fetcher);
 
   // Fetch pending orders
-  const { data: ordersData, error: ordersError } = useSWR(`${apiUrl}/api/orders?status=pending`, fetcher);
+  const { data: ordersData, error: ordersError, isLoading: isOrdersLoading } = useSWR(`${apiUrl}/api/orders?status=pending`, fetcher);
 
   // Update pending orders
   useEffect(() => {
@@ -33,9 +33,20 @@ export default function Waiter() {
       setPendingOrders(ordersData);
     }
     if (ordersError) {
-      setError('Failed to load pending orders.');
+      console.error('Pending orders fetch error:', ordersError);
+      // Only set error if not on take-order tab
+      if (activeTab === 'pending-orders') {
+        setError('Failed to load pending orders. Please try again later.');
+      }
     }
-  }, [ordersData, ordersError]);
+  }, [ordersData, ordersError, activeTab]);
+
+  // Handle menu errors
+  useEffect(() => {
+    if (menuError) {
+      setError('Failed to load menu. Please try again.');
+    }
+  }, [menuError]);
 
   // Unique categories
   const categories = ['All', ...new Set(menu?.map(item => item.category).filter(Boolean))];
@@ -48,13 +59,6 @@ export default function Waiter() {
           item.name.toLowerCase().includes(searchQuery.toLowerCase())
         )
     : [];
-
-  // Handle errors
-  useEffect(() => {
-    if (fetchError) {
-      setError('Failed to load menu. Please try again.');
-    }
-  }, [fetchError]);
 
   // Add to cart
   const addToCart = (item) => {
@@ -177,21 +181,8 @@ export default function Waiter() {
     ? pendingOrders.filter(order => order.table_id.toString() === filterTableNumber)
     : pendingOrders;
 
-  if (isLoading) return <div className="text-center mt-10" role="status">Loading...</div>;
-  if (error) {
-    return (
-      <div className="text-center mt-10 text-red-500" role="alert">
-        {error}
-        {error.includes('successfully') && (
-          <button
-            className="ml-4 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
-            onClick={() => setError(null)}
-          >
-            Clear
-          </button>
-        )}
-      </div>
-    );
+  if (isMenuLoading && isOrdersLoading) {
+    return <div className="text-center mt-10" role="status">Loading...</div>;
   }
 
   return (
@@ -224,6 +215,21 @@ export default function Waiter() {
           Pending Orders
         </button>
       </div>
+
+      {/* Error Message */}
+      {error && (
+        <div className="text-center mb-4 text-red-500" role="alert">
+          {error}
+          {error.includes('successfully') && (
+            <button
+              className="ml-4 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+              onClick={() => setError(null)}
+            >
+              Clear
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Take Order Panel */}
       {activeTab === 'take-order' && (
@@ -366,77 +372,85 @@ export default function Waiter() {
       {/* Pending Orders Panel */}
       {activeTab === 'pending-orders' && (
         <div>
-          {/* Filter by Table Number */}
-          <div className="mb-4">
-            <label htmlFor="filter-table-number" className="block text-sm font-medium text-gray-700">
-              Filter by Table Number
-            </label>
-            <input
-              type="number"
-              id="filter-table-number"
-              value={filterTableNumber}
-              onChange={(e) => setFilterTableNumber(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-              placeholder="Enter table number"
-              min="1"
-              max="30"
-            />
-          </div>
+          {isOrdersLoading ? (
+            <div className="text-center mt-10" role="status">Loading pending orders...</div>
+          ) : error ? (
+            <div className="text-center mt-10 text-red-500" role="alert">{error}</div>
+          ) : (
+            <>
+              {/* Filter by Table Number */}
+              <div className="mb-4">
+                <label htmlFor="filter-table-number" className="block text-sm font-medium text-gray-700">
+                  Filter by Table Number
+                </label>
+                <input
+                  type="number"
+                  id="filter-table-number"
+                  value={filterTableNumber}
+                  onChange={(e) => setFilterTableNumber(e.target.value)}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  placeholder="Enter table number"
+                  min="1"
+                  max="30"
+                />
+              </div>
 
-          {/* Pending Orders List */}
-          <div className="space-y-4">
-            {filteredOrders.length === 0 ? (
-              <p className="text-center text-gray-500">No pending orders.</p>
-            ) : (
-              filteredOrders.map(order => (
-                <div key={order.id} className="bg-white p-6 rounded-lg shadow">
-                  <div className="mb-4">
-                    <p className="text-lg font-semibold">Order #{order.order_number || order.id}</p>
-                    <p className="text-sm text-gray-500">
-                      Table {order.tables?.number || order.table_id}
-                    </p>
-                    <p className="text-sm text-gray-500">
-                      Placed on{' '}
-                      {new Date(order.created_at).toLocaleString('en-IN', {
-                        dateStyle: 'medium',
-                        timeStyle: 'short',
-                      })}
-                    </p>
-                    {order.notes && (
-                      <p className="text-sm text-gray-700 mt-2">
-                        <strong>Note:</strong> {order.notes}
+              {/* Pending Orders List */}
+              <div className="space-y-4">
+                {filteredOrders.length === 0 ? (
+                  <p className="text-center text-gray-500">No pending orders.</p>
+                ) : (
+                  filteredOrders.map(order => (
+                    <div key={order.id} className="bg-white p-6 rounded-lg shadow">
+                      <div className="mb-4">
+                        <p className="text-lg font-semibold">Order #{order.order_number || order.id}</p>
+                        <p className="text-sm text-gray-500">
+                          Table {order.tables?.number || order.table_id}
+                        </p>
+                        <p className="text-sm text-gray-500">
+                          Placed on{' '}
+                          {new Date(order.created_at).toLocaleString('en-IN', {
+                            dateStyle: 'medium',
+                            timeStyle: 'short',
+                          })}
+                        </p>
+                        {order.notes && (
+                          <p className="text-sm text-gray-700 mt-2">
+                            <strong>Note:</strong> {order.notes}
+                          </p>
+                        )}
+                      </div>
+                      <h2 className="font-semibold text-lg mb-2">Items</h2>
+                      <ul className="mb-4">
+                        {order.items.map((item, index) => (
+                          <li key={index} className="flex justify-between">
+                            <span>
+                              {item.name} {item.quantity > 1 ? `x${item.quantity}` : ''}{' '}
+                              {item.note && `(${item.note})`}
+                            </span>
+                            <span>₹{(item.price * (item.quantity || 1)).toFixed(2)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                      <p className="font-semibold">
+                        Total: ₹
+                        {order.items
+                          .reduce((sum, item) => sum + item.price * (item.quantity || 1), 0)
+                          .toFixed(2)}
                       </p>
-                    )}
-                  </div>
-                  <h2 className="font-semibold text-lg mb-2">Items</h2>
-                  <ul className="mb-4">
-                    {order.items.map((item, index) => (
-                      <li key={index} className="flex justify-between">
-                        <span>
-                          {item.name} {item.quantity > 1 ? `x${item.quantity}` : ''}{' '}
-                          {item.note && `(${item.note})`}
-                        </span>
-                        <span>₹{(item.price * (item.quantity || 1)).toFixed(2)}</span>
-                      </li>
-                    ))}
-                  </ul>
-                  <p className="font-semibold">
-                    Total: ₹
-                    {order.items
-                      .reduce((sum, item) => sum + item.price * (item.quantity || 1), 0)
-                      .toFixed(2)}
-                  </p>
-                  <button
-                    className="mt-4 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
-                    onClick={() => startEditingOrder(order)}
-                    aria-label={`Edit order ${order.order_number || order.id}`}
-                  >
-                    Edit Order
-                  </button>
-                </div>
-              ))
-            )}
-          </div>
+                      <button
+                        className="mt-4 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+                        onClick={() => startEditingOrder(order)}
+                        aria-label={`Edit order ${order.order_number || order.id}`}
+                      >
+                        Edit Order
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>
