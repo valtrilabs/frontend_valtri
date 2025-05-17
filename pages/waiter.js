@@ -34,7 +34,6 @@ export default function Waiter() {
     }
     if (ordersError) {
       console.error('Pending orders fetch error:', ordersError);
-      // Only set error if not on take-order tab
       if (activeTab === 'pending-orders') {
         setError('Failed to load pending orders. Please try again later.');
       }
@@ -202,7 +201,13 @@ export default function Waiter() {
           className={`flex-1 py-2 px-4 rounded-l-lg ${
             activeTab === 'take-order' ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700'
           }`}
-          onClick={() => setActiveTab('take-order')}
+          onClick={() => {
+            setActiveTab('take-order');
+            setEditingOrder(null);
+            setCart([]);
+            setTableNumber('');
+            setOrderNote('');
+          }}
         >
           Take Order
         </button>
@@ -234,6 +239,11 @@ export default function Waiter() {
       {/* Take Order Panel */}
       {activeTab === 'take-order' && (
         <div>
+          {/* Panel Header */}
+          <h2 className="text-xl font-semibold mb-4">
+            {editingOrder ? `Edit Order #${editingOrder.orderId}` : 'New Order'}
+          </h2>
+
           {/* Table Number Input */}
           <div className="mb-4">
             <label htmlFor="table-number" className="block text-sm font-medium text-gray-700">
@@ -249,6 +259,7 @@ export default function Waiter() {
               min="1"
               max="30"
               required
+              disabled={!!editingOrder} // Disable table number change during editing
             />
           </div>
 
