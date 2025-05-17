@@ -18,38 +18,45 @@ export default function Table() {
   const [error, setError] = useState(null);
   const [addedItems, setAddedItems] = useState({}); // Track items showing "Added"
 
-  // Check if user has an active order or paid order
+  // Check if user has an active order or recent paid order
   useEffect(() => {
+    // Clear localStorage on page load to prevent stale data
+    localStorage.removeItem('orderId');
+    localStorage.removeItem('appendOrder');
+
     async function checkActiveOrder() {
       if (!id) return;
       try {
-        // Check for any orders (pending or paid) for this table
+        // Check for orders (pending or paid) for this table within the last 24 hours
+        const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
         const { data, error } = await supabase
           .from('orders')
-          .select('id, status')
+          .select('id, status, created_at')
           .eq('table_id', parseInt(id))
           .in('status', ['pending', 'paid'])
+          .gte('created_at', twentyFourHoursAgo)
           .order('created_at', { ascending: false })
           .limit(1);
         if (error) {
           console.error('Error checking orders:', error.message);
           throw error;
         }
+        console.log('Orders found for table', id, ':', data); // Debug log
         if (data.length > 0) {
           const order = data[0];
           if (order.status === 'paid') {
-            localStorage.removeItem('orderId');
-            localStorage.removeItem('appendOrder');
+            console.log('Recent paid order found, redirecting to /blocked');
             router.replace('/blocked');
           } else if (order.status === 'pending') {
+            console.log('Pending order found, redirecting to /order/', order.id);
             localStorage.setItem('orderId', order.id);
             router.replace(`/order/${order.id}`);
           }
+        } else {
+          console.log('No recent orders found for table', id, ', allowing menu access');
         }
       } catch (err) {
         console.error('Error checking table orders:', err.message);
-        localStorage.removeItem('orderId');
-        localStorage.removeItem('appendOrder');
       }
     }
     checkActiveOrder();
