@@ -65,17 +65,6 @@ export default function Order() {
     return () => supabase.removeChannel(subscription);
   }, [orderId, router]);
 
-  // Add more items
-  const addMoreItems = () => {
-    if (order && order.status === 'pending') {
-      localStorage.setItem('appendOrder', JSON.stringify({
-        orderId,
-        items: order.items,
-      }));
-      router.push(`/table/${order.table_id}`);
-    }
-  };
-
   // Calculate total
   const total = order?.items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0) || 0;
 
@@ -115,15 +104,6 @@ export default function Order() {
         </ul>
         <p className="font-semibold">Total: ₹{total.toFixed(2)}</p>
         <p className="mt-4">Status: {order.status}</p>
-        {order.status === 'pending' && (
-          <button
-            className="mt-4 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
-            onClick={addMoreItems}
-            aria-label="Add more items to order"
-          >
-            Add More Items
-          </button>
-        )}
       </div>
     </div>
   );
