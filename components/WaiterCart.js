@@ -145,7 +145,7 @@ export default function WaiterCart({ cart, setCart, onPlaceOrder, onClose, isOpe
               ))}
             </ul>
 
-            {/* Add Item Dropdown (moved to bottom, only during editing) */}
+            {/* Add Item Dropdown (at bottom, only during editing) */}
             {isEditing && (
               <div className="mt-6">
                 <label htmlFor="item-search" className="block text-sm font-medium text-gray-700 mb-2">
@@ -164,7 +164,7 @@ export default function WaiterCart({ cart, setCart, onPlaceOrder, onClose, isOpe
                     placeholder="Search menu items..."
                   />
                   {searchTerm && filteredItems.length > 0 && (
-                    <ul className="absolute z-10 w-full bg-white border border-gray-300 rounded-md mt-1 max-h-40 overflow-y-auto shadow-lg">
+                    <ul className="absolute z-10 w-full bg-white border border-gray-300 rounded-md mb-1 max-h-40 overflow-y-auto shadow-lg bottom-full">
                       {filteredItems.map(item => (
                         <li
                           key={item.id}
