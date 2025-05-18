@@ -126,6 +126,13 @@ export default function Waiter() {
 
   // Edit order
   const startEditingOrder = (order) => {
+    console.log('startEditingOrder called with order:', order);
+    if (!order || !order.id || !order.items || !order.table_id) {
+      console.error('Invalid order data:', order);
+      setError('Cannot edit order: Invalid order data.');
+      return;
+    }
+
     setEditingOrder({
       orderId: order.id,
       tableNumber: order.table_id,
@@ -136,7 +143,18 @@ export default function Waiter() {
     setTableNumber(order.table_id.toString());
     setOrderNote(order.notes || '');
     setIsCartOpen(true);
-    // Removed setActiveTab('take-order') to keep modal in Pending Orders tab
+    console.log('State after setting:', {
+      editingOrder: {
+        orderId: order.id,
+        tableNumber: order.table_id,
+        items: order.items,
+        notes: order.notes || '',
+      },
+      cart: order.items,
+      tableNumber: order.table_id.toString(),
+      orderNote: order.notes || '',
+      isCartOpen: true,
+    });
   };
 
   // Save edited order
@@ -183,6 +201,16 @@ export default function Waiter() {
   if (isMenuLoading && isOrdersLoading) {
     return <div className="text-center mt-10" role="status">Loading...</div>;
   }
+
+  // Log before rendering WaiterCart
+  console.log('Rendering WaiterCart with props:', {
+    cart,
+    isOpen: isCartOpen,
+    tableNumber,
+    orderNote,
+    isEditing: !!editingOrder,
+    menu: menu || [],
+  });
 
   return (
     <div className="min-h-screen bg-gray-50 p-4">
@@ -364,7 +392,7 @@ export default function Waiter() {
             tableNumber={tableNumber}
             orderNote={orderNote}
             isEditing={!!editingOrder}
-            menu={menu || []} // Pass menu to WaiterCart for dropdown
+            menu={menu || []}
           />
         </div>
       )}

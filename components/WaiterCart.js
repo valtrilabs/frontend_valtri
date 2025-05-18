@@ -1,6 +1,8 @@
 import { useState } from 'react';
 
 export default function WaiterCart({ cart, setCart, onPlaceOrder, onClose, isOpen, tableNumber, orderNote, isEditing, menu }) {
+  console.log('WaiterCart rendering with props:', { cart, isOpen, tableNumber, orderNote, isEditing, menu });
+
   const [itemNotes, setItemNotes] = useState(cart.reduce((acc, item) => {
     acc[item.item_id] = item.note || '';
     return acc;
@@ -78,7 +80,10 @@ export default function WaiterCart({ cart, setCart, onPlaceOrder, onClose, isOpe
   // Calculate total
   const total = cart.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0);
 
-  if (!isOpen) return null;
+  if (!isOpen) {
+    console.log('WaiterCart not rendering: isOpen is false');
+    return null;
+  }
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-end justify-center z-50">
