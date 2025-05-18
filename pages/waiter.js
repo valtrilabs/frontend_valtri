@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
 import useSWR from 'swr';
-import WaiterCart from '../components/WaiterCart';
 import BottomCart from '../components/BottomCart';
-import { CakeIcon, ShoppingCartIcon } from '@heroicons/react/24/outline';
+import { CakeIcon } from '@heroicons/react/24/outline';
 
 const fetcher = (url) => fetch(url).then(res => res.json());
 
@@ -200,11 +199,6 @@ export default function Waiter() {
     }
   };
 
-  // Toggle cart visibility
-  const toggleCart = () => {
-    setIsCartOpen(prev => !prev);
-  };
-
   // Refresh page
   const refreshPage = () => {
     window.location.reload();
@@ -372,20 +366,6 @@ export default function Waiter() {
               rows="3"
             />
           </div>
-
-          {/* Cart Icon */}
-          {cart.length > 0 && (
-            <button
-              className="fixed top-4 right-4 bg-blue-500 text-white p-2 rounded-full shadow-lg hover:bg-blue-600 z-50"
-              onClick={toggleCart}
-              aria-label="Toggle cart"
-            >
-              <ShoppingCartIcon className="h-6 w-6" />
-              <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
-                {cart.reduce((sum, item) => sum + (item.quantity || 1), 0)}
-              </span>
-            </button>
-          )}
         </div>
       )}
 
@@ -472,8 +452,8 @@ export default function Waiter() {
         </div>
       )}
 
-      {/* Waiter Cart */}
-      <WaiterCart
+      {/* Bottom Cart */}
+      <BottomCart
         cart={cart}
         setCart={setCart}
         onPlaceOrder={editingOrder ? saveEditedOrder : placeOrder}

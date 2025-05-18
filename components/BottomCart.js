@@ -1,9 +1,15 @@
 import { useState, useEffect } from 'react';
 import { ArrowDownIcon, ArrowUpIcon, PlusIcon, MinusIcon, TrashIcon } from '@heroicons/react/24/outline';
 
-export default function BottomCart({ cart, setCart, onPlaceOrder, onClose, isOpen }) {
+export default function BottomCart({ cart, setCart, onPlaceOrder, onClose, isOpen, tableNumber, orderNote, isEditing, menu }) {
   const [isVisible, setIsVisible] = useState(isOpen);
   const [isMinimized, setIsMinimized] = useState(false);
+  const [itemNotes, setItemNotes] = useState(cart.reduce((acc, item) => {
+    acc[item.item_id] = item.note || '';
+    return acc;
+  }, {}));
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedItem, setSelectedItem] = useState(null);
 
   // Sync visibility with isOpen prop
   useEffect(() => {
@@ -15,6 +21,19 @@ export default function BottomCart({ cart, setCart, onPlaceOrder, onClose, isOpe
       setTimeout(() => setIsVisible(false), 300); // Match transition duration
     }
   }, [isOpen]);
+
+  // Sync itemNotes when cart changes
+  useEffect(() => {
+    setItemNotes(prev => {
+      const newNotes = { ...prev };
+      cart.forEach(item => {
+        if (!(item.item_id in newNotes)) {
+          newNotes[item.item_id] = item.note || '';
+        }
+      });
+      return newNotes;
+    });
+  }, [cart]);
 
   // Update quantity
   const updateQuantity = (itemId, delta) => {
@@ -34,6 +53,57 @@ export default function BottomCart({ cart, setCart, onPlaceOrder, onClose, isOpe
   // Delete item
   const deleteItem = (itemId) => {
     setCart(prevCart => prevCart.filter(item => item.item_id !== itemId));
+    setItemNotes(prev => {
+      const newNotes = { ...prev };
+      delete newNotes[itemId];
+      return newNotes;
+    });
+  };
+
+  // Update item note
+  const updateItemNote = (itemId, note) => {
+    setItemNotes(prev => ({ ...prev, [itemId]: note }));
+    setCart(prevCart =>
+      prevCart.map(item =>
+        item.item_id === itemId ? { ...item, note } : item
+      )
+    );
+  };
+
+  // Filter menu items for dropdown
+  const filteredItems = menu
+    ? menu.filter(item =>
+        item.name.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+    : [];
+
+  // Add selected item to cart
+  const addItemToCart = () => {
+    if (!selectedItem) return;
+    setCart(prevCart => {
+      const existingItem = prevCart.find(cartItem => cartItem.item_id === selectedItem.id);
+      if (existingItem) {
+        return prevCart.map(cartItem =>
+          cartItem.item_id === selectedItem.id
+            ? { ...cartItem, quantity: (cartItem.quantity || 1) + 1 }
+            : cartItem
+        );
+      }
+      return [
+        ...prevCart,
+        {
+          item_id: selectedItem.id,
+          name: selectedItem.name,
+          price: selectedItem.price,
+          category: selectedItem.category,
+          image_url: selectedItem.image_url,
+          quantity: 1,
+          note: '',
+        },
+      ];
+    });
+    setSearchTerm('');
+    setSelectedItem(null);
   };
 
   // Calculate total and item count
@@ -61,7 +131,9 @@ export default function BottomCart({ cart, setCart, onPlaceOrder, onClose, isOpe
       {/* Cart Header */}
       <div className="flex justify-between items-center p-4 border-b">
         <div className="flex items-center gap-2">
-          <h2 className="text-lg font-bold">You have added</h2>
+          <h2 className="text-lg font-bold">
+            {isEditing ? 'Edit Order' : 'Cart'} - Table {tableNumber || 'Not set'}
+          </h2>
           {itemCount > 0 && (
             <span className="bg-blue-500 text-white text-xs px-2 py-1 rounded-full">
               {itemCount} {itemCount === 1 ? 'item' : 'items'}
@@ -92,43 +164,101 @@ export default function BottomCart({ cart, setCart, onPlaceOrder, onClose, isOpe
             <p className="text-center text-gray-500">Cart is empty</p>
           ) : (
             cart.map((item, index) => (
-              <div key={`${item.item_id}-${index}`} className="flex items-center gap-4 mb-4">
-                <img
-                  src={item.image_url || 'https://images.unsplash.com/photo-1550547660-d9450f859349'}
-                  alt={item.name}
-                  className="w-16 h-16 object-cover rounded"
+              <div key={`${item.item_id}-${index}`} className="flex flex-col mb-4">
+                <div className="flex items-center gap-4">
+                  <img
+                    src={item.image_url || 'https://images.unsplash.com/photo-1550547660-d9450f859349'}
+                    alt={item.name}
+                    className="w-16 h-16 object-cover rounded"
+                  />
+                  <div className="flex-1">
+                    <h3 className="font-semibold">{item.name}</h3>
+                    <p className="text-sm text-gray-500">{item.category}</p>
+                    <p className="text-sm font-medium">₹{(item.price * (item.quantity || 1)).toFixed(2)}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      className="p-1 bg-gray-200 rounded hover:bg-gray-300"
+                      onClick={() => updateQuantity(item.item_id, -1)}
+                      aria-label={`Decrease quantity of ${item.name}`}
+                    >
+                      <MinusIcon className="h-4 w-4" />
+                    </button>
+                    <span className="w-8 text-center">{item.quantity || 1}</span>
+                    <button
+                      className="p-1 bg-gray-200 rounded hover:bg-gray-300"
+                      onClick={() => updateQuantity(item.item_id, 1)}
+                      aria-label={`Increase quantity of ${item.name}`}
+                    >
+                      <PlusIcon className="h-4 w-4" />
+                    </button>
+                    <button
+                      className="p-1 bg-red-100 rounded hover:bg-red-200"
+                      onClick={() => deleteItem(item.item_id)}
+                      aria-label={`Remove ${item.name} from cart`}
+                    >
+                      <TrashIcon className="h-4 w-4 text-red-600" />
+                    </button>
+                  </div>
+                </div>
+                <input
+                  type="text"
+                  value={itemNotes[item.item_id] || ''}
+                  onChange={(e) => updateItemNote(item.item_id, e.target.value)}
+                  className="mt-2 w-full p-2 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  placeholder="Item note (e.g., No cheese)"
                 />
-                <div className="flex-1">
-                  <h3 className="font-semibold">{item.name}</h3>
-                  <p className="text-sm text-gray-500">{item.category}</p>
-                  <p className="text-sm font-medium">₹{(item.price * (item.quantity || 1)).toFixed(2)}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    className="p-1 bg-gray-200 rounded hover:bg-gray-300"
-                    onClick={() => updateQuantity(item.item_id, -1)}
-                    aria-label={`Decrease quantity of ${item.name}`}
-                  >
-                    <MinusIcon className="h-4 w-4" />
-                  </button>
-                  <span className="w-8 text-center">{item.quantity || 1}</span>
-                  <button
-                    className="p-1 bg-gray-200 rounded hover:bg-gray-300"
-                    onClick={() => updateQuantity(item.item_id, 1)}
-                    aria-label={`Increase quantity of ${item.name}`}
-                  >
-                    <PlusIcon className="h-4 w-4" />
-                  </button>
-                  <button
-                    className="p-1 bg-red-100 rounded hover:bg-red-200"
-                    onClick={() => deleteItem(item.item_id)}
-                    aria-label={`Remove ${item.name} from cart`}
-                  >
-                    <TrashIcon className="h-4 w-4 text-red-600" />
-                  </button>
-                </div>
               </div>
             ))
+          )}
+
+          {/* Add Item Dropdown (at bottom, only during editing) */}
+          {isEditing && (
+            <div className="mt-6">
+              <label htmlFor="item-search" className="block text-sm font-medium text-gray-700 mb-2">
+                Add New Item
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  id="item-search"
+                  value={searchTerm}
+                  onChange={(e) => {
+                    setSearchTerm(e.target.value);
+                    setSelectedItem(null);
+                  }}
+                  className="w-full p-2 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  placeholder="Search menu items..."
+                />
+                {searchTerm && filteredItems.length > 0 && (
+                  <ul className="absolute z-10 w-full bg-white border border-gray-300 rounded-md mb-1 max-h-40 overflow-y-auto shadow-lg bottom-full">
+                    {filteredItems.map(item => (
+                      <li
+                        key={item.id}
+                        className="px-4 py-2 hover:bg-gray-100 cursor-pointer"
+                        onClick={() => {
+                          setSelectedItem(item);
+                          setSearchTerm(item.name);
+                        }}
+                      >
+                        {item.name} - ₹{item.price.toFixed(2)}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <button
+                onClick={addItemToCart}
+                disabled={!selectedItem}
+                className={`mt-2 w-full py-2 rounded-lg text-white font-medium ${
+                  selectedItem
+                    ? 'bg-blue-500 hover:bg-blue-600'
+                    : 'bg-gray-300 cursor-not-allowed'
+                }`}
+              >
+                Add Item
+              </button>
+            </div>
           )}
         </div>
       )}
@@ -151,9 +281,9 @@ export default function BottomCart({ cart, setCart, onPlaceOrder, onClose, isOpe
             <button
               className="flex-1 bg-blue-500 text-white py-2 rounded-lg hover:bg-blue-600"
               onClick={onPlaceOrder}
-              aria-label="Place order"
+              aria-label={isEditing ? 'Save Order Changes' : 'Place Order'}
             >
-              Place Order
+              {isEditing ? 'Save Order Changes' : 'Place Order'}
             </button>
           </div>
         </div>
