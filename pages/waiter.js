@@ -25,7 +25,7 @@ export default function Waiter() {
   const { data: menu, error: menuError, isLoading: isMenuLoading } = useSWR(`${apiUrl}/api/menu`, fetcher);
 
   // Fetch pending orders
-  const { data: ordersData, error: ordersError, isLoading: isOrdersLoading } = useSWR(`${apiUrl}/api/orders?status=pending`, fetcher);
+  const { data: ordersData, error: ordersError, isLoading: isOrdersLoading, mutate: mutateOrders } = useSWR(`${apiUrl}/api/orders?status=pending`, fetcher);
 
   // Update pending orders
   useEffect(() => {
@@ -118,7 +118,12 @@ export default function Waiter() {
       setOrderNote('');
       setIsCartOpen(false);
       setError('Order placed successfully!');
-      setTimeout(() => setError(null), 3000);
+      // Revalidate pending orders
+      mutateOrders();
+      // Fallback: Reload page after 3 seconds if mutate doesn't update the UI
+      setTimeout(() => {
+        window.location.reload();
+      }, 3000);
     } catch (err) {
       setError(`Failed to place order: ${err.message}`);
     }
@@ -143,7 +148,7 @@ export default function Waiter() {
     setTableNumber(order.table_id.toString());
     setOrderNote(order.notes || '');
     setIsCartOpen(true);
-    setActiveTab('pending-orders'); // Ensure we stay in Pending Orders tab
+    setActiveTab('pending-orders');
     console.log('State after setting:', {
       editingOrder: {
         orderId: order.id,
@@ -184,7 +189,12 @@ export default function Waiter() {
       setIsCartOpen(false);
       setEditingOrder(null);
       setError('Order updated successfully!');
-      setTimeout(() => setError(null), 3000);
+      // Revalidate pending orders
+      mutateOrders();
+      // Fallback: Reload page after 3 seconds if mutate doesn't update the UI
+      setTimeout(() => {
+        window.location.reload();
+      }, 3000);
     } catch (err) {
       setError(`Failed to update order: ${err.message}`);
     }
@@ -193,6 +203,11 @@ export default function Waiter() {
   // Toggle cart visibility
   const toggleCart = () => {
     setIsCartOpen(prev => !prev);
+  };
+
+  // Refresh page
+  const refreshPage = () => {
+    window.location.reload();
   };
 
   // Filtered pending orders
@@ -235,16 +250,18 @@ export default function Waiter() {
         </button>
       </div>
 
-      {/* Error Message */}
+      {/* Error/Success Message */}
       {error && (
-        <div className="text-center mb-4 text-red-500" role="alert">
-          {error}
+        <div className="mb-4 flex flex-col items-center justify-center" role="alert">
+          <p className={`text-center ${error.includes('successfully') ? 'text-green-500' : 'text-red-500'}`}>
+            {error}
+          </p>
           {error.includes('successfully') && (
             <button
-              className="ml-4 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
-              onClick={() => setError(null)}
+              className="mt-2 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+              onClick={refreshPage}
             >
-              Clear
+              Refresh
             </button>
           )}
         </div>
@@ -453,7 +470,7 @@ export default function Waiter() {
         </div>
       )}
 
-      {/* Waiter Cart - Moved outside tab-specific blocks to render in any tab */}
+      {/* Waiter Cart */}
       <WaiterCart
         cart={cart}
         setCart={setCart}
