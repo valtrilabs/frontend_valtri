@@ -34,7 +34,6 @@ export default function Waiter() {
     }
     if (ordersError) {
       console.error('Pending orders fetch error:', ordersError);
-      // Only set error if not on take-order tab
       if (activeTab === 'pending-orders') {
         setError('Failed to load pending orders. Please try again later.');
       }
@@ -137,7 +136,6 @@ export default function Waiter() {
     setTableNumber(order.table_id.toString());
     setOrderNote(order.notes || '');
     setIsCartOpen(true);
-    setActiveTab('take-order');
   };
 
   // Save edited order
@@ -365,6 +363,7 @@ export default function Waiter() {
             tableNumber={tableNumber}
             orderNote={orderNote}
             isEditing={!!editingOrder}
+            menu={menu || []}
           />
         </div>
       )}
