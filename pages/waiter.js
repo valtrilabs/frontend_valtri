@@ -259,7 +259,7 @@ export default function Waiter() {
               min="1"
               max="30"
               required
-              disabled={!!editingOrder} // Disable table number change during editing
+              disabled={!!editingOrder}
             />
           </div>
 
@@ -376,6 +376,7 @@ export default function Waiter() {
             tableNumber={tableNumber}
             orderNote={orderNote}
             isEditing={!!editingOrder}
+            menu={menu || []} // Pass menu to WaiterCart
           />
         </div>
       )}
