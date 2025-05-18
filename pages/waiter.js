@@ -271,8 +271,8 @@ export default function Waiter() {
       {activeTab === 'take-order' && (
         <div>
           {/* Table Number Input */}
-          <div className="mb-4">
-            <label htmlFor="table-number" className="block text-sm font-medium text-gray-700">
+          <div className="mb-6">
+            <label htmlFor="table-number" className="block text-sm font-semibold text-gray-800 mb-2">
               Table Number (1–30)
             </label>
             <input
@@ -280,8 +280,8 @@ export default function Waiter() {
               id="table-number"
               value={tableNumber}
               onChange={(e) => setTableNumber(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-              placeholder="Enter table number"
+              className="w-full p-3 rounded-lg border border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 bg-white text-gray-800 placeholder-gray-400"
+              placeholder="Enter table number (1–30)"
               min="1"
               max="30"
               required
@@ -289,13 +289,17 @@ export default function Waiter() {
           </div>
 
           {/* Search Bar */}
-          <div className="mb-4">
+          <div className="mb-6">
+            <label htmlFor="search-menu" className="block text-sm font-semibold text-gray-800 mb-2">
+              Search Menu Items
+            </label>
             <input
               type="text"
+              id="search-menu"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full p-2 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-              placeholder="Search menu items..."
+              className="w-full p-3 rounded-lg border border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 bg-white text-gray-800 placeholder-gray-400"
+              placeholder="Search for menu items..."
             />
           </div>
 
@@ -356,14 +360,14 @@ export default function Waiter() {
 
           {/* Order Note */}
           <div className="mt-4">
-            <label htmlFor="order-note" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="order-note" className="block text-sm font-semibold text-gray-800 mb-2">
               Order Note (Optional)
             </label>
             <textarea
               id="order-note"
               value={orderNote}
               onChange={(e) => setOrderNote(e.target.value)}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+              className="w-full p-3 rounded-lg border border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 bg-white text-gray-800 placeholder-gray-400"
               placeholder="E.g., No onions, extra spicy"
               rows="3"
             />
@@ -390,13 +394,11 @@ export default function Waiter() {
         <div>
           {isOrdersLoading ? (
             <div className="text-center mt-10" role="status">Loading pending orders...</div>
-          ) : error ? (
-            <div className="text-center mt-10 text-red-500" role="alert">{error}</div>
           ) : (
             <>
               {/* Filter by Table Number */}
               <div className="mb-4">
-                <label htmlFor="filter-table-number" className="block text-sm font-medium text-gray-700">
+                <label htmlFor="filter-table-number" className="block text-sm font-semibold text-gray-800 mb-2">
                   Filter by Table Number
                 </label>
                 <input
@@ -404,8 +406,8 @@ export default function Waiter() {
                   id="filter-table-number"
                   value={filterTableNumber}
                   onChange={(e) => setFilterTableNumber(e.target.value)}
-                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                  placeholder="Enter table number"
+                  className="w-full p-3 rounded-lg border border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 bg-white text-gray-800 placeholder-gray-400"
+                  placeholder="Enter table number (1–30)"
                   min="1"
                   max="30"
                 />
