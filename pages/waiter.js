@@ -143,6 +143,7 @@ export default function Waiter() {
     setTableNumber(order.table_id.toString());
     setOrderNote(order.notes || '');
     setIsCartOpen(true);
+    setActiveTab('pending-orders'); // Ensure we stay in Pending Orders tab
     console.log('State after setting:', {
       editingOrder: {
         orderId: order.id,
@@ -154,6 +155,7 @@ export default function Waiter() {
       tableNumber: order.table_id.toString(),
       orderNote: order.notes || '',
       isCartOpen: true,
+      activeTab: 'pending-orders',
     });
   };
 
@@ -201,16 +203,6 @@ export default function Waiter() {
   if (isMenuLoading && isOrdersLoading) {
     return <div className="text-center mt-10" role="status">Loading...</div>;
   }
-
-  // Log before rendering WaiterCart
-  console.log('Rendering WaiterCart with props:', {
-    cart,
-    isOpen: isCartOpen,
-    tableNumber,
-    orderNote,
-    isEditing: !!editingOrder,
-    menu: menu || [],
-  });
 
   return (
     <div className="min-h-screen bg-gray-50 p-4">
@@ -373,27 +365,6 @@ export default function Waiter() {
               </span>
             </button>
           )}
-
-          {/* Waiter Cart */}
-          <WaiterCart
-            cart={cart}
-            setCart={setCart}
-            onPlaceOrder={editingOrder ? saveEditedOrder : placeOrder}
-            onClose={() => {
-              setIsCartOpen(false);
-              if (editingOrder) {
-                setEditingOrder(null);
-                setCart([]);
-                setTableNumber('');
-                setOrderNote('');
-              }
-            }}
-            isOpen={isCartOpen}
-            tableNumber={tableNumber}
-            orderNote={orderNote}
-            isEditing={!!editingOrder}
-            menu={menu || []}
-          />
         </div>
       )}
 
@@ -481,6 +452,27 @@ export default function Waiter() {
           )}
         </div>
       )}
+
+      {/* Waiter Cart - Moved outside tab-specific blocks to render in any tab */}
+      <WaiterCart
+        cart={cart}
+        setCart={setCart}
+        onPlaceOrder={editingOrder ? saveEditedOrder : placeOrder}
+        onClose={() => {
+          setIsCartOpen(false);
+          if (editingOrder) {
+            setEditingOrder(null);
+            setCart([]);
+            setTableNumber('');
+            setOrderNote('');
+          }
+        }}
+        isOpen={isCartOpen}
+        tableNumber={tableNumber}
+        orderNote={orderNote}
+        isEditing={!!editingOrder}
+        menu={menu || []}
+      />
     </div>
   );
 }
