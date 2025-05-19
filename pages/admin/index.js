@@ -38,6 +38,8 @@ export default function Admin() {
     statuses: ['paid']
   });
   const [viewingOrder, setViewingOrder] = useState(null);
+  const [weeklyRevenue, setWeeklyRevenue] = useState(0);
+  const [monthlyRevenue, setMonthlyRevenue] = useState(0);
 
   useEffect(() => {
     localStorage.setItem('activeTab', activeTab);
@@ -141,6 +143,52 @@ export default function Admin() {
       }
     }
     if (isLoggedIn && activeTab === 'Data Analytics') fetchPaidOrders();
+  }, [isLoggedIn, activeTab]);
+
+  useEffect(() => {
+    async function fetchRevenueData() {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
+        const now = new Date();
+
+        // Weekly Revenue (last 7 days)
+        const weekStart = new Date(now);
+        weekStart.setDate(now.getDate() - 7);
+        weekStart.setHours(0, 0, 0, 0);
+        const weekEnd = new Date(now);
+        weekEnd.setHours(23, 59, 59, 999);
+        const weekParams = new URLSearchParams({
+          startDate: weekStart.toISOString(),
+          endDate: weekEnd.toISOString(),
+          statuses: 'paid',
+          aggregate: 'revenue'
+        });
+        const weekResponse = await fetch(`${apiUrl}/api/admin/orders/history?${weekParams}`);
+        if (!weekResponse.ok) throw new Error(`HTTP ${weekResponse.status}`);
+        const weekData = await weekResponse.json();
+        setWeeklyRevenue(weekData.totalRevenue || 0);
+
+        // Monthly Revenue (last 30 days)
+        const monthStart = new Date(now);
+        monthStart.setDate(now.getDate() - 30);
+        monthStart.setHours(0, 0, 0, 0);
+        const monthEnd = new Date(now);
+        monthEnd.setHours(23, 59, 59, 999);
+        const monthParams = new URLSearchParams({
+          startDate: monthStart.toISOString(),
+          endDate: monthEnd.toISOString(),
+          statuses: 'paid',
+          aggregate: 'revenue'
+        });
+        const monthResponse = await fetch(`${apiUrl}/api/admin/orders/history?${monthParams}`);
+        if (!monthResponse.ok) throw new Error(`HTTP ${monthResponse.status}`);
+        const monthData = await monthResponse.json();
+        setMonthlyRevenue(monthData.totalRevenue || 0);
+      } catch (err) {
+        setError(`Failed to fetch revenue data: ${err.message}`);
+      }
+    }
+    if (isLoggedIn && activeTab === 'Data Analytics') fetchRevenueData();
   }, [isLoggedIn, activeTab]);
 
   useEffect(() => {
@@ -529,7 +577,11 @@ export default function Admin() {
       ordersByHour[hour]++;
     });
     const peakHour = ordersByHour.indexOf(Math.max(...ordersByHour));
-    return { totalOrders, totalRevenue, mostSoldItem, peakHour };
+    const totalItemsSold = todaysOrders.reduce((sum, order) =>
+      sum + order.items.reduce((s, item) => s + (item.quantity || 1), 0), 0
+    );
+    const aov = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+    return { totalOrders, totalRevenue, mostSoldItem, peakHour, totalItemsSold, aov };
   };
 
   const analytics = getAnalytics();
@@ -1125,6 +1177,24 @@ export default function Admin() {
                 <p className="text-2xl font-bold">
                   {analytics.peakHour === -1 ? 'N/A' : `${analytics.peakHour}:00`}
                 </p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+              <div className="bg-gradient-to-r from-teal-500 to-teal-700 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Weekly Revenue</h3>
+                <p className="text-2xl font-bold">₹{weeklyRevenue.toFixed(2)}</p>
+              </div>
+              <div className="bg-gradient-to-r from-indigo-500 to-indigo-700 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Monthly Revenue</h3>
+                <p className="text-2xl font-bold">₹{monthlyRevenue.toFixed(2)}</p>
+              </div>
+              <div className="bg-gradient-to-r from-pink-500 to-pink-700 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Average Order Value</h3>
+                <p className="text-2xl font-bold">₹{analytics.aov.toFixed(2)}</p>
+              </div>
+              <div className="bg-gradient-to-r from-yellow-500 to-yellow-700 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Total Items Sold</h3>
+                <p className="text-2xl font-bold">{analytics.totalItemsSold}</p>
               </div>
             </div>
             <div className="bg-white p-6 rounded-lg shadow-md">
