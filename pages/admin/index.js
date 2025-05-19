@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../../lib/supabase';
-import { PrinterIcon, ChartBarIcon, ClipboardDocumentListIcon, PlusIcon, TrashIcon, CheckCircleIcon, XCircleIcon, ClockIcon, PencilSquareIcon, MagnifyingGlassIcon } from '@heroicons/react/24/outline';
+import { PrinterIcon, ChartBarIcon, ClipboardDocumentListIcon, PlusIcon, TrashIcon, CheckCircleIcon, XCircleIcon, ClockIcon, PencilSquareIcon } from '@heroicons/react/24/outline';
 import Escpos from 'escpos-buffer';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
@@ -28,8 +28,6 @@ export default function Admin() {
     customStart: new Date(),
     customEnd: new Date(),
     statuses: ['paid'],
-    searchInput: '',
-    search: '',
     page: 1,
     perPage: 10
   });
@@ -37,17 +35,14 @@ export default function Admin() {
   const [exportFilters, setExportFilters] = useState({
     startDate: new Date(),
     endDate: new Date(),
-    statuses: ['paid'],
-    search: ''
+    statuses: ['paid']
   });
   const [viewingOrder, setViewingOrder] = useState(null);
 
-  // Persist activeTab to localStorage whenever it changes
   useEffect(() => {
     localStorage.setItem('activeTab', activeTab);
   }, [activeTab]);
 
-  // Helper functions for IST conversion
   const formatToIST = (date) => {
     const utcDate = new Date(date);
     const istDate = add(utcDate, { hours: 5, minutes: 30 });
@@ -72,7 +67,6 @@ export default function Admin() {
     return format(istDate, 'yyyy-MM-dd');
   };
 
-  // Check if admin is logged in
   useEffect(() => {
     const checkSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -82,7 +76,6 @@ export default function Admin() {
     checkSession();
   }, [router]);
 
-  // Fetch pending orders (initial fetch)
   useEffect(() => {
     async function fetchOrders() {
       try {
@@ -98,10 +91,8 @@ export default function Admin() {
     if (isLoggedIn && activeTab === 'Pending Orders') fetchOrders();
   }, [isLoggedIn, activeTab]);
 
-  // Real-time updates for Pending Orders tab
   useEffect(() => {
     if (!isLoggedIn || activeTab !== 'Pending Orders') return;
-
     const subscription = supabase
       .channel('pending-orders-channel')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, async (payload) => {
@@ -125,13 +116,9 @@ export default function Admin() {
         }
       })
       .subscribe();
-
-    return () => {
-      supabase.removeChannel(subscription);
-    };
+    return () => supabase.removeChannel(subscription);
   }, [isLoggedIn, activeTab]);
 
-  // Fetch paid orders for analytics
   useEffect(() => {
     async function fetchPaidOrders() {
       try {
@@ -140,13 +127,11 @@ export default function Admin() {
         todayStart.setHours(0, 0, 0, 0);
         const todayEnd = new Date();
         todayEnd.setHours(23, 59, 59, 999);
-        
         const params = new URLSearchParams({
           startDate: todayStart.toISOString(),
           endDate: todayEnd.toISOString(),
           statuses: 'paid'
         });
-        
         const response = await fetch(`${apiUrl}/api/admin/orders/history?${params}`);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
@@ -158,7 +143,6 @@ export default function Admin() {
     if (isLoggedIn && activeTab === 'Data Analytics') fetchPaidOrders();
   }, [isLoggedIn, activeTab]);
 
-  // Fetch menu items
   useEffect(() => {
     async function fetchMenu() {
       try {
@@ -172,7 +156,6 @@ export default function Admin() {
     if (isLoggedIn) fetchMenu();
   }, [isLoggedIn]);
 
-  // Fetch order history
   const fetchHistory = async () => {
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
@@ -200,7 +183,6 @@ export default function Admin() {
           endDate = new Date(historyFilters.customEnd.setHours(23, 59, 59, 999)).toISOString();
           break;
       }
-
       const params = new URLSearchParams();
       if (startDate && endDate) {
         params.append('startDate', startDate);
@@ -209,10 +191,6 @@ export default function Admin() {
       if (historyFilters.statuses.length) {
         params.append('statuses', historyFilters.statuses.join(','));
       }
-      if (historyFilters.search) {
-        params.append('search', historyFilters.search);
-      }
-
       const response = await fetch(`${apiUrl}/api/admin/orders/history?${params}`);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
@@ -224,12 +202,10 @@ export default function Admin() {
 
   useEffect(() => {
     if (isLoggedIn && activeTab === 'Order History') fetchHistory();
-  }, [isLoggedIn, activeTab, historyFilters.search, historyFilters.dateRange, historyFilters.statuses, historyFilters.customStart, historyFilters.customEnd]);
+  }, [isLoggedIn, activeTab, historyFilters.dateRange, historyFilters.statuses, historyFilters.customStart, historyFilters.customEnd]);
 
-  // Real-time subscription for KOT printing
   useEffect(() => {
     if (!isLoggedIn) return;
-
     const subscription = supabase
       .channel('orders-channel')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, async (payload) => {
@@ -245,10 +221,7 @@ export default function Admin() {
         }
       })
       .subscribe();
-
-    return () => {
-      supabase.removeChannel(subscription);
-    };
+    return () => supabase.removeChannel(subscription);
   }, [isLoggedIn]);
 
   const handleLogin = async () => {
@@ -393,7 +366,6 @@ export default function Admin() {
       const devices = await navigator.usb.getDevices();
       const kitchen1Printer = devices.find(d => d.vendorId === 0x04b8 && d.productId === 0x0e15);
       const kitchen2Printer = devices.find(d => d.vendorId === 0x04b8 && d.productId === 0x0e16);
-
       const chineseItems = [];
       const otherItems = [];
       for (const item of order.items) {
@@ -404,12 +376,10 @@ export default function Admin() {
           otherItems.push({ ...item, category: menuItem ? menuItem.category : 'Unknown' });
         }
       }
-
       if (otherItems.length > 0 && kitchen1Printer) {
         await kitchen1Printer.open();
         await kitchen1Printer.selectConfiguration(1);
         await kitchen1Printer.claimInterface(0);
-
         const writer = Escpos.getUSBPrinter(kitchen1Printer);
         writer
           .init()
@@ -427,29 +397,24 @@ export default function Admin() {
             { text: 'Item', align: 'left', width: 0.6 },
             { text: 'Qty', align: 'right', width: 0.4 }
           ]);
-
         otherItems.forEach(item => {
           writer.tableCustom([
             { text: item.name.slice(0, 20), align: 'left', width: 0.6 },
             { text: item.quantity || 1, align: 'right', width: 0.4 }
           ]);
         });
-
         writer
           .newline()
           .cut()
           .close();
-
         const buffer = writer.buffer();
         await kitchen1Printer.transferOut(1, buffer);
         await kitchen1Printer.close();
       }
-
       if (chineseItems.length > 0 && kitchen2Printer) {
         await kitchen2Printer.open();
         await kitchen2Printer.selectConfiguration(1);
         await kitchen2Printer.claimInterface(0);
-
         const writer = Escpos.getUSBPrinter(kitchen2Printer);
         writer
           .init()
@@ -467,19 +432,16 @@ export default function Admin() {
             { text: 'Item', align: 'left', width: 0.6 },
             { text: 'Qty', align: 'right', width: 0.4 }
           ]);
-
         chineseItems.forEach(item => {
           writer.tableCustom([
             { text: item.name.slice(0, 20), align: 'left', width: 0.6 },
             { text: item.quantity || 1, align: 'right', width: 0.4 }
           ]);
         });
-
         writer
           .newline()
           .cut()
           .close();
-
         const buffer = writer.buffer();
         await kitchen2Printer.transferOut(1, buffer);
         await kitchen2Printer.close();
@@ -494,11 +456,9 @@ export default function Admin() {
       const devices = await navigator.usb.getDevices();
       const adminPrinter = devices.find(d => d.vendorId === 0x04b8 && d.productId === 0x0e17);
       if (!adminPrinter) throw new Error('No compatible admin printer found');
-
       await adminPrinter.open();
       await adminPrinter.selectConfiguration(1);
       await adminPrinter.claimInterface(0);
-
       const writer = Escpos.getUSBPrinter(adminPrinter);
       writer
         .init()
@@ -517,7 +477,6 @@ export default function Admin() {
           { text: 'Qty', align: 'right', width: 0.15 },
           { text: 'Price', align: 'right', width: 0.25 }
         ]);
-
       order.items.forEach(item => {
         writer.tableCustom([
           { text: item.name.slice(0, 20), align: 'left', width: 0.6 },
@@ -525,7 +484,6 @@ export default function Admin() {
           { text: `₹${(item.price * (item.quantity || 1)).toFixed(2)}`, align: 'right', width: 0.25 }
         ]);
       });
-
       const total = order.items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0);
       writer
         .text('--------------------------------')
@@ -540,7 +498,6 @@ export default function Admin() {
         .newline()
         .cut()
         .close();
-
       const buffer = writer.buffer();
       await adminPrinter.transferOut(1, buffer);
       await adminPrinter.close();
@@ -554,12 +511,10 @@ export default function Admin() {
     const todaysOrders = paidOrders.filter(order =>
       formatToISTDateForComparison(new Date(order.created_at)) === today
     );
-
     const totalOrders = todaysOrders.length;
     const totalRevenue = todaysOrders.reduce((sum, order) =>
       sum + order.items.reduce((s, item) => s + (item.price * (item.quantity || 1)), 0), 0
     );
-
     const itemCounts = {};
     todaysOrders.forEach(order => {
       order.items.forEach(item => {
@@ -568,14 +523,12 @@ export default function Admin() {
     });
     const mostSoldItem = Object.entries(itemCounts)
       .sort((a, b) => b[1] - a[1])[0] || ['None', 0];
-
     const ordersByHour = Array(24).fill(0);
     todaysOrders.forEach(order => {
       const hour = parseInt(formatToISTHourOnly(new Date(order.created_at)));
       ordersByHour[hour]++;
     });
     const peakHour = ordersByHour.indexOf(Math.max(...ordersByHour));
-
     return { totalOrders, totalRevenue, mostSoldItem, peakHour };
   };
 
@@ -588,12 +541,8 @@ export default function Admin() {
       const orderDate = new Date(order.created_at).toISOString();
       const matchesDate = orderDate >= startDate && orderDate <= endDate;
       const matchesStatus = exportFilters.statuses.length ? exportFilters.statuses.includes(order.status) : true;
-      const matchesSearch = exportFilters.search
-        ? order.order_number.includes(exportFilters.search) || order.tables?.number.includes(exportFilters.search)
-        : true;
-      return matchesDate && matchesStatus && matchesSearch;
+      return matchesDate && matchesStatus;
     });
-
     let csv;
     if (exportType === 'order') {
       csv = [
@@ -618,7 +567,6 @@ export default function Admin() {
         })
       ];
     }
-
     const bom = '\uFEFF';
     const blob = new Blob([bom + csv.join('\n')], { type: 'text/csv;charset=utf-8' });
     const url = window.URL.createObjectURL(blob);
@@ -891,7 +839,7 @@ export default function Admin() {
           <div>
             <h2 className="text-2xl font-bold text-gray-800 mb-6">Order History</h2>
             <div className="bg-white p-6 rounded-lg shadow-md mb-6">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">Date Range</label>
                   <select
@@ -927,27 +875,6 @@ export default function Admin() {
                   statuses={historyFilters.statuses}
                   onChange={(newStatuses) => setHistoryFilters({ ...historyFilters, statuses: newStatuses, page: 1 })}
                 />
-                <div>
-                  <label className="block text-sm font-medium mb-1">Search</label>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      placeholder="Order ID or Table Number"
-                      value={historyFilters.searchInput}
-                      onChange={(e) => setHistoryFilters({ ...historyFilters, searchInput: e.target.value })}
-                      className="border p-2 w-full rounded-lg"
-                      aria-label="Search orders"
-                    />
-                    <button
-                      className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2"
-                      onClick={() => setHistoryFilters({ ...historyFilters, search: historyFilters.searchInput, page: 1 })}
-                      aria-label="Search orders"
-                    >
-                      <MagnifyingGlassIcon className="h-5 w-5" />
-                      Search
-                    </button>
-                  </div>
-                </div>
               </div>
             </div>
             {historyOrders.length === 0 ? (
@@ -1047,11 +974,11 @@ export default function Admin() {
                   ))}
                 </tbody>
               </table>
-              <div className="flex justify-between font-semibold">
+              <div className="flex justify-between font-semibold mb-4">
                 <span>Total</span>
                 <span>₹{viewingOrder.items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0).toFixed(2)}</span>
               </div>
-              <div className="flex justify-end gap-2 mt-4">
+              <div className="flex justify-end gap-2">
                 <button
                   className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600"
                   onClick={() => setViewingOrder(null)}
@@ -1060,7 +987,7 @@ export default function Admin() {
                   Close
                 </button>
                 <button
-                  className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 flex items-center gap-2"
+                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2"
                   onClick={() => printBill(viewingOrder)}
                   aria-label={`Print invoice for ${viewingOrder.order_number || viewingOrder.id}`}
                 >
@@ -1077,51 +1004,59 @@ export default function Admin() {
             <h2 className="text-2xl font-bold text-gray-800 mb-6">Menu Management</h2>
             <div className="bg-white p-6 rounded-lg shadow-md mb-6">
               <h3 className="text-lg font-semibold mb-4">Add New Item</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <input
-                  type="text"
-                  placeholder="Item Name"
-                  value={newItem.name}
-                  onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
-                  className="border p-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  aria-label="Item Name"
-                />
-                <input
-                  type="text"
-                  placeholder="Category"
-                  value={newItem.category}
-                  onChange={(e) => setNewItem({ ...newItem, category: e.target.value })}
-                  className="border p-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  aria-label="Category"
-                />
-                <input
-                  type="number"
-                  placeholder="Price"
-                  value={newItem.price}
-                  onChange={(e) => setNewItem({ ...newItem, price: e.target.value })}
-                  className="border p-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  aria-label="Price"
-                />
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Name</label>
+                  <input
+                    type="text"
+                    value={newItem.name}
+                    onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
+                    className="border p-2 w-full rounded-lg"
+                    aria-label="Item name"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Category</label>
+                  <input
+                    type="text"
+                    value={newItem.category}
+                    onChange={(e) => setNewItem({ ...newItem, category: e.target.value })}
+                    className="border p-2 w-full rounded-lg"
+                    aria-label="Item category"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Price</label>
+                  <input
+                    type="number"
+                    value={newItem.price}
+                    onChange={(e) => setNewItem({ ...newItem, price: e.target.value })}
+                    className="border p-2 w-full rounded-lg"
+                    aria-label="Item price"
+                  />
+                </div>
+                <div className="flex items-center">
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={newItem.is_available}
+                      onChange={(e) => setNewItem({ ...newItem, is_available: e.target.checked })}
+                      className="mr-2"
+                      aria-label="Item availability"
+                    />
+                    Available
+                  </label>
+                </div>
               </div>
-              <label className="flex items-center mt-4">
-                <input
-                  type="checkbox"
-                  checked={newItem.is_available}
-                  onChange={(e) => setNewItem({ ...newItem, is_available: e.target.checked })}
-                  className="mr-2"
-                  aria-label="Item Available"
-                />
-                Available
-              </label>
               <button
-                className="mt-4 bg-blue-600 text-white px-4 py-3 rounded-lg hover:bg-blue-700"
+                className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
                 onClick={addMenuItem}
                 aria-label="Add menu item"
               >
                 Add Item
               </button>
             </div>
-            <h3 className="text-lg font-semibold mb-4">Current Menu</h3>
+            <h3 className="text-lg font-semibold mb-4">Menu Items</h3>
             <table className="w-full bg-white rounded-lg shadow-md">
               <thead>
                 <tr className="border-b">
@@ -1140,9 +1075,9 @@ export default function Admin() {
                     <td className="text-right py-3 px-4">₹{item.price.toFixed(2)}</td>
                     <td className="text-center py-3 px-4">
                       {item.is_available ? (
-                        <CheckCircleIcon className="h-6 w-6 text-green-500 mx-auto" />
+                        <CheckCircleIcon className="h-5 w-5 text-green-500 mx-auto" />
                       ) : (
-                        <XCircleIcon className="h-6 w-6 text-red-500 mx-auto" />
+                        <XCircleIcon className="h-5 w-5 text-red-500 mx-auto" />
                       )}
                     </td>
                     <td className="text-center py-3 px-4 flex gap-2 justify-center">
@@ -1151,7 +1086,7 @@ export default function Admin() {
                         onClick={() => toggleAvailability(item.id, item.is_available)}
                         aria-label={`Toggle availability for ${item.name}`}
                       >
-                        {item.is_available ? 'Make Unavailable' : 'Make Available'}
+                        {item.is_available ? 'Disable' : 'Enable'}
                       </button>
                       <button
                         className="text-red-600 hover:text-red-800"
@@ -1172,40 +1107,29 @@ export default function Admin() {
           <div>
             <h2 className="text-2xl font-bold text-gray-800 mb-6">Data Analytics</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-              <div className="bg-gradient-to-r from-blue-500 to-blue-700 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
-                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">
-                  <ClipboardDocumentListIcon className="h-6 w-6" />
-                  Total Orders Today
-                </h3>
-                <p className="text-4xl font-bold">{analytics.totalOrders}</p>
+              <div className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white p-6 rounded-lg shadow-md">
+                <h3 className="text-lg font-semibold">Total Orders</h3>
+                <p className="text-2xl font-bold">{analytics.totalOrders}</p>
               </div>
-              <div className="bg-gradient-to-r from-green-500 to-green-700 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
-                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">
-                  <ChartBarIcon className="h-6 w-6" />
-                  Total Revenue Today
-                </h3>
-                <p className="text-4xl font-bold">₹{analytics.totalRevenue.toFixed(2)}</p>
+              <div className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white p-6 rounded-lg shadow-md">
+                <h3 className="text-lg font-semibold">Total Revenue</h3>
+                <p className="text-2xl font-bold">₹{analytics.totalRevenue.toFixed(2)}</p>
               </div>
-              <div className="bg-gradient-to-r from-purple-500 to-purple-700 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
-                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">
-                  <PlusIcon className="h-6 w-6" />
-                  Most Sold Item
-                </h3>
-                <p className="text-xl font-bold">{analytics.mostSoldItem[0]}</p>
-                <p className="text-sm">{analytics.mostSoldItem[1]} sold</p>
+              <div className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white p-6 rounded-lg shadow-md">
+                <h3 className="text-lg font-semibold">Most Sold Item</h3>
+                <p className="text-2xl font-bold">{analytics.mostSoldItem[0]}</p>
+                <p className="text-sm">{analytics.mostSoldItem[1]} units</p>
               </div>
-              <div className="bg-gradient-to-r from-orange-500 to-orange-700 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
-                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">
-                  <ClockIcon className="h-6 w-6" />
-                  Peak Hour
-                </h3>
-                <p className="text-xl font-bold">{analytics.peakHour}:00–{analytics.peakHour + 1}:00</p>
-                <p className="text-sm">{paidOrders.filter(o => parseInt(formatToISTHourOnly(new Date(o.created_at))) === analytics.peakHour).length} orders</p>
+              <div className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white p-6 rounded-lg shadow-md">
+                <h3 className="text-lg font-semibold">Peak Hour</h3>
+                <p className="text-2xl font-bold">
+                  {analytics.peakHour === -1 ? 'N/A' : `${analytics.peakHour}:00`}
+                </p>
               </div>
             </div>
             <div className="bg-white p-6 rounded-lg shadow-md">
               <h3 className="text-lg font-semibold mb-4">Export Orders</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">Date Range</label>
                   <div className="flex gap-2">
@@ -1222,22 +1146,6 @@ export default function Admin() {
                       aria-label="Export end date"
                     />
                   </div>
-                </div>
-                <StatusFilter
-                  label="Status"
-                  statuses={exportFilters.statuses}
-                  onChange={(newStatuses) => setExportFilters({ ...exportFilters, statuses: newStatuses })}
-                />
-                <div>
-                  <label className="block text-sm font-medium mb-1">Search</label>
-                  <input
-                    type="text"
-                    placeholder="Order ID or Table Number"
-                    value={exportFilters.search}
-                    onChange={(e) => setExportFilters({ ...exportFilters, search: e.target.value })}
-                    className="border p-2 w-full rounded-lg"
-                    aria-label="Export search"
-                  />
                 </div>
               </div>
               <div className="flex gap-4">
