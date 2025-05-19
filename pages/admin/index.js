@@ -1108,15 +1108,15 @@ export default function Admin() {
             <h2 className="text-2xl font-bold text-gray-800 mb-6">Data Analytics</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
               <div className="bg-gradient-to-r from-blue-500 to-blue-700 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
-                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Total Orders Today</h3>
+                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Total Orders</h3>
                 <p className="text-2xl font-bold">{analytics.totalOrders}</p>
               </div>
               <div className="bg-gradient-to-r from-green-500 to-green-700 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
-                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Total Revenue Today </h3>
+                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Total Revenue</h3>
                 <p className="text-2xl font-bold">₹{analytics.totalRevenue.toFixed(2)}</p>
               </div>
               <div className="bg-gradient-to-r from-purple-500 to-purple-700 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
-                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Most Sold Item Today</h3>
+                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Most Sold Item</h3>
                 <p className="text-2xl font-bold">{analytics.mostSoldItem[0]}</p>
                 <p className="text-sm">{analytics.mostSoldItem[1]} units</p>
               </div>
