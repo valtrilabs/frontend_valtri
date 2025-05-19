@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../../lib/supabase';
+import { format, add } from 'date-fns';
 
 export default function Order() {
   const router = useRouter();
@@ -8,6 +9,13 @@ export default function Order() {
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // Function to convert UTC to IST
+  const formatToIST = (date) => {
+    const utcDate = new Date(date);
+    const istDate = add(utcDate, { hours: 5, minutes: 30 });
+    return format(istDate, 'dd/MM/yyyy, hh:mm a');
+  };
 
   // Fetch order details
   useEffect(() => {
@@ -72,10 +80,7 @@ export default function Order() {
   if (error) return <div className="text-center mt-10 text-red-500" role="alert">{error} Redirecting...</div>;
   if (!order) return <div className="text-center mt-10" role="alert">Order not found</div>;
 
-  const formattedDate = new Date(order.created_at).toLocaleString('en-IN', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  });
+  const formattedDate = formatToIST(order.created_at);
 
   return (
     <div className="min-h-screen bg-gray-100 p-4">

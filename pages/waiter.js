@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import useSWR from 'swr';
 import BottomCart from '../components/BottomCart';
 import { CakeIcon } from '@heroicons/react/24/outline';
+import { format, add } from 'date-fns';
 
 const fetcher = (url) => fetch(url).then(res => res.json());
 
@@ -18,6 +19,13 @@ export default function Waiter() {
   const [pendingOrders, setPendingOrders] = useState([]);
   const [filterTableNumber, setFilterTableNumber] = useState('');
   const [editingOrder, setEditingOrder] = useState(null);
+
+  // Function to convert UTC to IST
+  const formatToIST = (date) => {
+    const utcDate = new Date(date);
+    const istDate = add(utcDate, { hours: 5, minutes: 30 });
+    return format(istDate, 'dd/MM/yyyy, hh:mm a');
+  };
 
   // Fetch menu items
   const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
@@ -406,11 +414,7 @@ export default function Waiter() {
                           Table {order.tables?.number || order.table_id}
                         </p>
                         <p className="text-sm text-gray-500">
-                          Placed on{' '}
-                          {new Date(order.created_at).toLocaleString('en-IN', {
-                            dateStyle: 'medium',
-                            timeStyle: 'short',
-                          })}
+                          Placed on {formatToIST(order.created_at)}
                         </p>
                         {order.notes && (
                           <p className="text-sm text-gray-700 mt-2">
