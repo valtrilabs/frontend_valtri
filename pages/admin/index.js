@@ -49,6 +49,9 @@ export default function Admin() {
   const [viewingOrder, setViewingOrder] = useState(null);
   const [weeklyRevenue, setWeeklyRevenue] = useState(0);
   const [monthlyRevenue, setMonthlyRevenue] = useState(0);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [selectedOrderId, setSelectedOrderId] = useState(null);
+  const [paymentType, setPaymentType] = useState('');
 
   useEffect(() => {
     localStorage.setItem('activeTab', activeTab);
@@ -110,8 +113,8 @@ export default function Admin() {
         const newOrder = payload.new;
         if (newOrder.status === 'pending') {
           try {
-            const apiUrl = process.env.URL.replace(/\/+$/, '');
-            const response = await fetch(`${apiUrl}/${orders}/${newOrder.id}`);
+            const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
+            const response = await fetch(`${apiUrl}/api/orders/${newOrder.id}`);
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const orderDetails = await response.json();
             setOrders(prevOrders => [...prevOrders, orderDetails]);
@@ -225,16 +228,20 @@ export default function Admin() {
           endDate = new Date(today.setHours(23, 59, 59, 999)).toISOString();
           break;
         case 'yesterday':
-          startDate = new Date(today.setDate(today.getDate() - 1)).setHours(0, 0, 0, 0);
-          endDate = new Date(today.setDate(today.getDate())).setHours(23, 59, 59, 999);
-          startDate = new Date(startDate).toISOString();
-          endDate = new Date(endDate).toISOString();
+          startDate = new Date(today.setDate(today.getDate() - 1));
+          startDate.setHours(0, 0, 0, 0);
+          endDate = new Date(today.setDate(today.getDate()));
+          endDate.setHours(23, 59, 59, 999);
+          startDate = startDate.toISOString();
+          endDate = endDate.toISOString();
           break;
         case 'last7days':
-          startDate = new Date(today.setDate(today.getDate() - 7)).setHours(0, 0, 0, 0);
-          endDate = new Date(today.setDate(today.getDate() + 7)).setHours(23, 59, 59, 999);
-          startDate = new Date(startDate).toISOString();
-          endDate = new Date(endDate).toISOString();
+          startDate = new Date(today.setDate(today.getDate() - 7));
+          startDate.setHours(0, 0, 0, 0);
+          endDate = new Date(today);
+          endDate.setHours(23, 59, 59, 999);
+          startDate = startDate.toISOString();
+          endDate = endDate.toISOString();
           break;
         case 'custom':
           startDate = new Date(historyFilters.customStart.setHours(0, 0, 0, 0)).toISOString();
@@ -274,12 +281,27 @@ export default function Admin() {
     }
   };
 
-  const markAsPaid = async (orderId) => {
+  const initiateMarkAsPaid = (orderId) => {
+    setSelectedOrderId(orderId);
+    setPaymentType('');
+    setShowPaymentModal(true);
+  };
+
+  const markAsPaid = async () => {
+    if (!paymentType) {
+      setError('Please select a payment method');
+      return;
+    }
+
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
-      const response = await fetch(`${apiUrl}/api/orders/${orderId}/pay`, { method: 'PATCH' });
+      const response = await fetch(`${apiUrl}/api/orders/${selectedOrderId}/pay`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payment_type: paymentType }),
+      });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      setOrders(orders.filter(order => order.id !== orderId));
+      setOrders(orders.filter(order => order.id !== selectedOrderId));
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
       const todayEnd = new Date();
@@ -294,6 +316,9 @@ export default function Admin() {
         const paidData = await paidResponse.json();
         setPaidOrders(paidData);
       }
+      setShowPaymentModal(false);
+      setSelectedOrderId(null);
+      setPaymentType('');
     } catch (err) {
       setError(`Failed to mark order as paid: ${err.message}`);
     }
@@ -499,6 +524,7 @@ export default function Admin() {
               <p>Order #${order.order_number || order.id}</p>
               <p>Table ${order.tables?.number || order.table_id}</p>
               <p>Date: ${formattedDate}</p>
+              <p>Payment Method: ${order.payment_type || 'N/A'}</p>
             </div>
             <div class="divider"></div>
             <table>
@@ -589,23 +615,23 @@ export default function Admin() {
     let csv;
     if (exportType === 'order') {
       csv = [
-        'Order ID,Date,Time,Table Number,Status,Total Amount,Items',
+        'Order ID,Date,Time,Table Number,Status,Total Amount,Items,Payment Method',
         ...filteredOrders.map(order => {
           const total = order.items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0);
           const date = formatToISTDateOnly(new Date(order.created_at));
           const time = formatToIST(new Date(order.created_at)).split(' ')[1];
           const items = order.items.map(item => `${item.name} x${item.quantity || 1}`).join(', ');
-          return `${order.order_number || order.id},${date},${time},${order.tables?.number || order.table_id},${order.status},${total.toFixed(2)},${items}`;
+          return `${order.order_number || order.id},${date},${time},${order.tables?.number || order.table_id},${order.status},${total.toFixed(2)},${items},${order.payment_type || 'N/A'}`;
         }),
       ];
     } else {
       csv = [
-        'Order ID,Date,Item Name,Quantity,Unit Price,Total Price,Status,Table Number',
+        'Order ID,Date,Item Name,Quantity,Unit Price,Total Price,Status,Table Number,Payment Method',
         ...filteredOrders.flatMap(order => {
           const date = formatToISTDateOnly(new Date(order.created_at));
           return order.items.map(item => {
             const totalPrice = (item.price * (item.quantity || 1)).toFixed(2);
-            return `${order.order_number || order.id},${date},${item.name},${item.quantity || 1},${item.price.toFixed(2)},${totalPrice},${order.status},${order.tables?.number || order.table_id}`;
+            return `${order.order_number || order.id},${date},${item.name},${item.quantity || 1},${item.price.toFixed(2)},${totalPrice},${order.status},${order.tables?.number || order.table_id},${order.payment_type || 'N/A'}`;
           });
         }),
       ];
@@ -749,7 +775,7 @@ export default function Admin() {
                           </button>
                           <button
                             className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 flex items-center gap-2"
-                            onClick={() => markAsPaid(order.id)}
+                            onClick={() => initiateMarkAsPaid(order.id)}
                             aria-label={`Mark order ${order.order_number || order.id} as paid`}
                           >
                             Mark as Paid
@@ -791,6 +817,46 @@ export default function Admin() {
                 })}
               </div>
             )}
+          </div>
+        )}
+
+        {showPaymentModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+            <div className="bg-white p-6 rounded-lg max-w-md w-full">
+              <h3 className="text-xl font-bold mb-4">Select Payment Method</h3>
+              <select
+                className="border p-2 w-full rounded-lg mb-4"
+                value={paymentType}
+                onChange={(e) => setPaymentType(e.target.value)}
+                aria-label="Select payment method"
+              >
+                <option value="">Select Payment Method</option>
+                <option value="UPI">UPI</option>
+                <option value="Cash">Cash</option>
+                <option value="Bank">Bank</option>
+                <option value="Card">Card</option>
+              </select>
+              <div className="flex justify-end gap-2">
+                <button
+                  className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600"
+                  onClick={() => {
+                    setShowPaymentModal(false);
+                    setSelectedOrderId(null);
+                    setPaymentType('');
+                  }}
+                  aria-label="Cancel payment selection"
+                >
+                  Cancel
+                </button>
+                <button
+                  className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700"
+                  onClick={markAsPaid}
+                  aria-label="Confirm payment"
+                >
+                  Confirm
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -911,7 +977,7 @@ export default function Admin() {
                         aria-label="Custom end date"
                       />
                     </div>
-                )}
+                  )}
                 </div>
                 <StatusFilter
                   label="Status"
@@ -932,6 +998,7 @@ export default function Admin() {
                       <th className="text-left py-3 px-4">Table</th>
                       <th className="text-right py-3 px-4">Total</th>
                       <th className="text-left py-3 px-4">Status</th>
+                      <th className="text-left py-3 px-4">Payment Method</th>
                       <th className="text-center py-3 px-4">Actions</th>
                     </tr>
                   </thead>
@@ -948,6 +1015,7 @@ export default function Admin() {
                           <td className="py-3 px-4">{order.tables?.number || order.table_id}</td>
                           <td className="text-right py-3 px-4">₹{total.toFixed(2)}</td>
                           <td className="py-3 px-4">{order.status}</td>
+                          <td className="py-3 px-4">{order.payment_type || 'N/A'}</td>
                           <td className="text-center py-3 px-4 flex gap-2 justify-center">
                             <button
                               className="text-blue-600 hover:text-blue-800"
@@ -998,7 +1066,8 @@ export default function Admin() {
             <div className="bg-white p-6 rounded-lg max-w-2xl w-full">
               <h3 className="text-xl font-bold mb-4">Invoice #{viewingOrder.order_number || viewingOrder.id}</h3>
               <p className="text-sm text-gray-500 mb-2">{formatToIST(new Date(viewingOrder.created_at))}</p>
-              <p className="text-sm text-gray-500 mb-4">Table {viewingOrder.tables?.number || viewingOrder.table_id}</p>
+              <p className="text-sm text-gray-500 mb-2">Table {viewingOrder.tables?.number || viewingOrder.table_id}</p>
+              <p className="text-sm text-gray-500 mb-4">Payment Method: {viewingOrder.payment_type || 'N/A'}</p>
               <table className="w-full mb-4">
                 <thead>
                   <tr className="border-b">
@@ -1148,22 +1217,22 @@ export default function Admin() {
 
         {activeTab === 'Data Analytics' && (
           <div>
-            <h2 className="text-2xl font-bold text-gray-800 mb-6">Data Analytics</h2>
+            <h2 className="text-2xl font-bold text-gray-800 mb-6">Analytics</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-              <div className="bg-gradient-to-r from-blue-500 to-blue-700 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+              <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
                 <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Total Orders</h3>
                 <p className="text-2xl font-bold">{analytics.totalOrders}</p>
               </div>
-              <div className="bg-gradient-to-r from-green-500 to-green-700 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+              <div className="bg-gradient-to-r from-green-500 to-green-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
                 <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Total Revenue</h3>
                 <p className="text-2xl font-bold">₹{analytics.totalRevenue.toFixed(2)}</p>
               </div>
-              <div className="bg-gradient-to-r from-purple-500 to-purple-700 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+              <div className="bg-gradient-to-r from-purple-500 to-purple-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
                 <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Most Sold Item</h3>
                 <p className="text-2xl font-bold">{analytics.mostSoldItem[0]}</p>
                 <p className="text-sm">{analytics.mostSoldItem[1]} units</p>
               </div>
-              <div className="bg-gradient-to-r from-orange-500 to-orange-700 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+              <div className="bg-gradient-to-r from-orange-500 to-orange-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
                 <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Peak Hour</h3>
                 <p className="text-2xl font-bold">
                   {analytics.peakHour === -1 ? 'N/A' : `${analytics.peakHour}:00`}
@@ -1171,76 +1240,70 @@ export default function Admin() {
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-              <div className="bg-gradient-to-r from-teal-500 to-teal-700 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+              <div className="bg-gradient-to-r from-teal-500 to-teal-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
                 <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Weekly Revenue</h3>
                 <p className="text-2xl font-bold">₹{weeklyRevenue.toFixed(2)}</p>
               </div>
-              <div className="bg-gradient-to-r from-indigo-500 to-indigo-700 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+              <div className="bg-gradient-to-r from-indigo-500 to-indigo-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
                 <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Monthly Revenue</h3>
                 <p className="text-2xl font-bold">₹{monthlyRevenue.toFixed(2)}</p>
               </div>
-              <div className="bg-gradient-to-r from-pink-500 to-pink-700 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+              <div className="bg-gradient-to-r from-pink-500 to-pink-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
                 <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Average Order Value</h3>
                 <p className="text-2xl font-bold">₹{analytics.aov.toFixed(2)}</p>
               </div>
-              <div className="bg-gradient-to-r from-yellow-500 to-yellow-700 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+              <div className="bg-gradient-to-r from-yellow-500 to-yellow-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
                 <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Total Items Sold</h3>
                 <p className="text-2xl font-bold">{analytics.totalItemsSold}</p>
               </div>
             </div>
             <div className="bg-white p-6 rounded-lg shadow-md">
               <h3 className="text-lg font-semibold mb-4">Export Orders</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-sm font-medium mb-1">Date Range</label>
-                  0<div className="flex gap-2">
-                    <DatePicker
-                      selected={exportFilters.startDate}
-                      onChange={date => setExportFilters({ ...exportFilters, startDate: date })}
-                      className="border p-2 rounded-lg w-full"
-                      aria-label="Export start date"
-                    />
-                    <DatePicker
-                      selected={exportFilters.endDate}
-                      onChange={date => setExportFilters({ ...exportFilters, endDate: date })}
-                      className="border p-2 rounded-lg w-full"
-                      aria-label="Export end date"
-                    />
-                  </div>
+                  <label className="block text-sm font-medium mb-1">Export Type</label>
+                  <select
+                    className="border p-2 rounded-lg w-full"
+                    value={exportType}
+                    onChange={(e) => setExportType(e.target.value)}
+                    aria-label="Select export type"
+                  >
+                    <option value="order">Order Summary</option>
+                    <option value="items">Itemized</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Start Date</label>
+                  <DatePicker
+                    selected={exportFilters.startDate}
+                    onChange={(date) => setExportFilters({ ...exportFilters, startDate: date })}
+                    className="border p-2 rounded-lg w-full"
+                    aria-label="Start date picker for export"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">End Date</label>
+                  <DatePicker
+                    selected={exportFilters.endDate}
+                    onChange={(date) => setExportFilters({ ...exportFilters, endDate: date })}
+                    className="border p-2 rounded-lg w-full"
+                    aria-label="End date picker for export"
+                  />
                 </div>
               </div>
-              <div className="flex gap-4">
-                <label className="flex items-center">
-                  <input
-                    type="radio"
-                    name="exportType"
-                    value="order"
-                    checked={exportType === 'order'}
-                    onChange={() => setExportType('order')}
-                    className="mr-2"
-                    aria-label="Export order-level"
-                  />
-                  Order-Level
-                </label>
-                <label className="flex items-center">
-                  <input
-                    type="radio"
-                    name="exportType"
-                    value="item"
-                    checked={exportType === 'item'}
-                    onChange={() => setExportType('item')}
-                    className="mr-2"
-                    aria-label="Export item-level"
-                  />
-                  Item-Level
-                </label>
+              <div className="mt-4">
+                <StatusFilter
+                  label="Status"
+                  statuses={exportFilters.statuses}
+                  onChange={(newStatuses) => setExportFilters({ ...exportFilters, statuses: newStatuses })}
+                />
               </div>
               <button
-                className="mt-4 bg-blue-600 text-white px-4 py-3 rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
                 onClick={exportOrders}
-                aria-label="Export orders as CSV"
+                aria-label="Export orders"
               >
-                Export Orders
+                Export
               </button>
             </div>
           </div>
