@@ -2,10 +2,10 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../../lib/supabase';
 import { PrinterIcon, ChartBarIcon, ClipboardDocumentListIcon, PlusIcon, TrashIcon, CheckCircleIcon, XCircleIcon, ClockIcon, PencilSquareIcon } from '@heroicons/react/24/outline';
-import Escpos from 'escpos-buffer';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import { format, add } from 'date-fns';
+import PrintableReceipt from '../../components/PrintableReceipt';
 
 export default function Admin() {
   const router = useRouter();
@@ -499,59 +499,50 @@ export default function Admin() {
     }
   };
 
-  const printBill = async (order) => {
-    try {
-      const devices = await navigator.usb.getDevices();
-      const adminPrinter = devices.find(d => d.vendorId === 0x04b8 && d.productId === 0x0e17);
-      if (!adminPrinter) throw new Error('No compatible admin printer found');
-      await adminPrinter.open();
-      await adminPrinter.selectConfiguration(1);
-      await adminPrinter.claimInterface(0);
-      const writer = Escpos.getUSBPrinter(adminPrinter);
-      writer
-        .init()
-        .align('center')
-        .size(2, 2)
-        .text('Gsaheb Cafe')
-        .size(1, 1)
-        .text(`Order #${order.order_number || order.id}`)
-        .text(`Table ${order.tables?.number || order.table_id}`)
-        .text(`Date: ${formatToIST(new Date(order.created_at))}`)
-        .newline()
-        .align('left')
-        .text('--------------------------------')
-        .tableCustom([
-          { text: 'Item', align: 'left', width: 0.6 },
-          { text: 'Qty', align: 'right', width: 0.15 },
-          { text: 'Price', align: 'right', width: 0.25 }
-        ]);
-      order.items.forEach(item => {
-        writer.tableCustom([
-          { text: item.name.slice(0, 20), align: 'left', width: 0.6 },
-          { text: item.quantity || 1, align: 'right', width: 0.15 },
-          { text: `₹${(item.price * (item.quantity || 1)).toFixed(2)}`, align: 'right', width: 0.25 }
-        ]);
-      });
-      const total = order.items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0);
-      writer
-        .text('--------------------------------')
-        .tableCustom([
-          { text: 'Total', align: 'left', width: 0.6 },
-          { text: '', align: 'right', width: 0.15 },
-          { text: `₹${total.toFixed(2)}`, align: 'right', width: 0.25 }
-        ])
-        .newline()
-        .align('center')
-        .text('Thank you for dining with us!')
-        .newline()
-        .cut()
-        .close();
-      const buffer = writer.buffer();
-      await adminPrinter.transferOut(1, buffer);
-      await adminPrinter.close();
-    } catch (err) {
-      setError(`Failed to print bill: ${err.message}. Ensure admin printer is connected and supports WebUSB.`);
+  const printBill = (order) => {
+    // Open a new window
+    const printWindow = window.open('', '_blank', 'width=400,height=600');
+    if (!printWindow) {
+      setError('Failed to open print window. Please allow pop-ups for this site.');
+      return;
     }
+
+    // Write the receipt HTML to the new window
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Receipt - Order #${order.order_number || order.id}</title>
+          <style>
+            body { margin: 0; padding: 0; }
+          </style>
+        </head>
+        <body>
+          <div id="receipt"></div>
+          <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+          <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+          <script src="https://unpkg.com/date-fns@2.30.0/dist/date-fns.min.js"></script>
+          <script>
+            // Define PrintableReceipt component
+            ${PrintableReceipt.toString()}
+            
+            // Render the receipt
+            const root = ReactDOM.createRoot(document.getElementById('receipt'));
+            root.render(
+              React.createElement(PrintableReceipt, { order: ${JSON.stringify(order)} })
+            );
+
+            // Trigger print after rendering
+            window.onload = () => {
+              window.print();
+              window.onafterprint = () => window.close();
+            };
+          </script>
+        </body>
+      </html>
+    `);
+
+    printWindow.document.close();
   };
 
   const getAnalytics = () => {
