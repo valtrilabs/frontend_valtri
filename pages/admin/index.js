@@ -1,11 +1,20 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../../lib/supabase';
-import { PrinterIcon, ChartBarIcon, ClipboardDocumentListIcon, PlusIcon, TrashIcon, CheckCircleIcon, XCircleIcon, ClockIcon, PencilSquareIcon } from '@heroicons/react/24/outline';
+import {
+  PrinterIcon,
+  ChartBarIcon,
+  ClipboardDocumentListIcon,
+  PlusIcon,
+  TrashIcon,
+  CheckCircleIcon,
+  XCircleIcon,
+  ClockIcon,
+  PencilSquareIcon,
+} from '@heroicons/react/24/outline';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import { format, add } from 'date-fns';
-import PrintableReceipt from '../../components/PrintableReceipt';
 
 export default function Admin() {
   const router = useRouter();
@@ -29,13 +38,13 @@ export default function Admin() {
     customEnd: new Date(),
     statuses: ['paid'],
     page: 1,
-    perPage: 10
+    perPage: 10,
   });
   const [exportType, setExportType] = useState('order');
   const [exportFilters, setExportFilters] = useState({
     startDate: new Date(),
     endDate: new Date(),
-    statuses: ['paid']
+    statuses: ['paid'],
   });
   const [viewingOrder, setViewingOrder] = useState(null);
   const [weeklyRevenue, setWeeklyRevenue] = useState(0);
@@ -101,8 +110,8 @@ export default function Admin() {
         const newOrder = payload.new;
         if (newOrder.status === 'pending') {
           try {
-            const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
-            const response = await fetch(`${apiUrl}/api/orders/${newOrder.id}`);
+            const apiUrl = process.env.URL.replace(/\/+$/, '');
+            const response = await fetch(`${apiUrl}/${orders}/${newOrder.id}`);
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const orderDetails = await response.json();
             setOrders(prevOrders => [...prevOrders, orderDetails]);
@@ -118,6 +127,7 @@ export default function Admin() {
         }
       })
       .subscribe();
+
     return () => supabase.removeChannel(subscription);
   }, [isLoggedIn, activeTab]);
 
@@ -132,7 +142,7 @@ export default function Admin() {
         const params = new URLSearchParams({
           startDate: todayStart.toISOString(),
           endDate: todayEnd.toISOString(),
-          statuses: 'paid'
+          statuses: 'paid',
         });
         const response = await fetch(`${apiUrl}/api/admin/orders/history?${params}`);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -161,7 +171,7 @@ export default function Admin() {
           startDate: weekStart.toISOString(),
           endDate: weekEnd.toISOString(),
           statuses: 'paid',
-          aggregate: 'revenue'
+          aggregate: 'revenue',
         });
         const weekResponse = await fetch(`${apiUrl}/api/admin/orders/history?${weekParams}`);
         if (!weekResponse.ok) throw new Error(`HTTP ${weekResponse.status}`);
@@ -178,7 +188,7 @@ export default function Admin() {
           startDate: monthStart.toISOString(),
           endDate: monthEnd.toISOString(),
           statuses: 'paid',
-          aggregate: 'revenue'
+          aggregate: 'revenue',
         });
         const monthResponse = await fetch(`${apiUrl}/api/admin/orders/history?${monthParams}`);
         if (!monthResponse.ok) throw new Error(`HTTP ${monthResponse.status}`);
@@ -230,6 +240,8 @@ export default function Admin() {
           startDate = new Date(historyFilters.customStart.setHours(0, 0, 0, 0)).toISOString();
           endDate = new Date(historyFilters.customEnd.setHours(23, 59, 59, 999)).toISOString();
           break;
+        default:
+          break;
       }
       const params = new URLSearchParams();
       if (startDate && endDate) {
@@ -251,26 +263,6 @@ export default function Admin() {
   useEffect(() => {
     if (isLoggedIn && activeTab === 'Order History') fetchHistory();
   }, [isLoggedIn, activeTab, historyFilters.dateRange, historyFilters.statuses, historyFilters.customStart, historyFilters.customEnd]);
-
-  useEffect(() => {
-    if (!isLoggedIn) return;
-    const subscription = supabase
-      .channel('orders-channel')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, async (payload) => {
-        const newOrder = payload.new;
-        try {
-          const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
-          const response = await fetch(`${apiUrl}/api/orders/${newOrder.id}`);
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          const orderDetails = await response.json();
-          await printKOT(orderDetails);
-        } catch (err) {
-          setError(`Failed to fetch new order for KOT: ${err.message}`);
-        }
-      })
-      .subscribe();
-    return () => supabase.removeChannel(subscription);
-  }, [isLoggedIn]);
 
   const handleLogin = async () => {
     try {
@@ -295,7 +287,7 @@ export default function Admin() {
       const params = new URLSearchParams({
         startDate: todayStart.toISOString(),
         endDate: todayEnd.toISOString(),
-        statuses: 'paid'
+        statuses: 'paid',
       });
       const paidResponse = await fetch(`${apiUrl}/api/admin/orders/history?${params}`);
       if (paidResponse.ok) {
@@ -330,7 +322,7 @@ export default function Admin() {
         item_id: menuItem.id,
         name: menuItem.name,
         price: menuItem.price,
-        quantity: 1
+        quantity: 1,
       }]);
     }
   };
@@ -341,7 +333,7 @@ export default function Admin() {
       const response = await fetch(`${apiUrl}/api/orders/${editingOrder.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items: editedItems })
+        body: JSON.stringify({ items: editedItems }),
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const updatedOrder = await response.json();
@@ -370,7 +362,7 @@ export default function Admin() {
           name: newItem.name,
           category: newItem.category || '',
           price: parseFloat(newItem.price),
-          is_available: newItem.is_available
+          is_available: newItem.is_available,
         }])
         .select();
       if (error) throw error;
@@ -409,134 +401,142 @@ export default function Admin() {
     }
   };
 
-  const printKOT = async (order) => {
-    try {
-      const devices = await navigator.usb.getDevices();
-      const kitchen1Printer = devices.find(d => d.vendorId === 0x04b8 && d.productId === 0x0e15);
-      const kitchen2Printer = devices.find(d => d.vendorId === 0x04b8 && d.productId === 0x0e16);
-      const chineseItems = [];
-      const otherItems = [];
-      for (const item of order.items) {
-        const menuItem = menuItems.find(m => m.id === item.item_id);
-        if (menuItem && menuItem.category.toLowerCase() === 'chinese') {
-          chineseItems.push({ ...item, category: menuItem.category });
-        } else {
-          otherItems.push({ ...item, category: menuItem ? menuItem.category : 'Unknown' });
-        }
-      }
-      if (otherItems.length > 0 && kitchen1Printer) {
-        await kitchen1Printer.open();
-        await kitchen1Printer.selectConfiguration(1);
-        await kitchen1Printer.claimInterface(0);
-        const writer = Escpos.getUSBPrinter(kitchen1Printer);
-        writer
-          .init()
-          .align('center')
-          .size(2, 2)
-          .text('KOT - Kitchen 1')
-          .size(1, 1)
-          .text(`Order #${order.order_number || order.id}`)
-          .text(`Table ${order.tables?.number || order.table_id}`)
-          .text(`Date: ${formatToIST(new Date(order.created_at))}`)
-          .newline()
-          .align('left')
-          .text('--------------------------------')
-          .tableCustom([
-            { text: 'Item', align: 'left', width: 0.6 },
-            { text: 'Qty', align: 'right', width: 0.4 }
-          ]);
-        otherItems.forEach(item => {
-          writer.tableCustom([
-            { text: item.name.slice(0, 20), align: 'left', width: 0.6 },
-            { text: item.quantity || 1, align: 'right', width: 0.4 }
-          ]);
-        });
-        writer
-          .newline()
-          .cut()
-          .close();
-        const buffer = writer.buffer();
-        await kitchen1Printer.transferOut(1, buffer);
-        await kitchen1Printer.close();
-      }
-      if (chineseItems.length > 0 && kitchen2Printer) {
-        await kitchen2Printer.open();
-        await kitchen2Printer.selectConfiguration(1);
-        await kitchen2Printer.claimInterface(0);
-        const writer = Escpos.getUSBPrinter(kitchen2Printer);
-        writer
-          .init()
-          .align('center')
-          .size(2, 2)
-          .text('KOT - Kitchen 2')
-          .size(1, 1)
-          .text(`Order #${order.order_number || order.id}`)
-          .text(`Table ${order.tables?.number || order.table_id}`)
-          .text(`Date: ${formatToIST(new Date(order.created_at))}`)
-          .newline()
-          .align('left')
-          .text('--------------------------------')
-          .tableCustom([
-            { text: 'Item', align: 'left', width: 0.6 },
-            { text: 'Qty', align: 'right', width: 0.4 }
-          ]);
-        chineseItems.forEach(item => {
-          writer.tableCustom([
-            { text: item.name.slice(0, 20), align: 'left', width: 0.6 },
-            { text: item.quantity || 1, align: 'right', width: 0.4 }
-          ]);
-        });
-        writer
-          .newline()
-          .cut()
-          .close();
-        const buffer = writer.buffer();
-        await kitchen2Printer.transferOut(1, buffer);
-        await kitchen2Printer.close();
-      }
-    } catch (err) {
-      setError(`Failed to print KOT: ${err.message}. Ensure printers are connected and support WebUSB.`);
-    }
-  };
-
   const printBill = (order) => {
-    // Open a new window
     const printWindow = window.open('', '_blank', 'width=400,height=600');
     if (!printWindow) {
       setError('Failed to open print window. Please allow pop-ups for this site.');
       return;
     }
 
-    // Write the receipt HTML to the new window
+    const total = order.items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0);
+    const formattedDate = formatToIST(new Date(order.created_at));
+
     printWindow.document.write(`
       <!DOCTYPE html>
       <html>
         <head>
           <title>Receipt - Order #${order.order_number || order.id}</title>
           <style>
-            body { margin: 0; padding: 0; }
+            body {
+              margin: 0;
+              padding: 0;
+              font-family: Arial, sans-serif;
+              font-size: 14px;
+              line-height: 1.4;
+              color: #000;
+            }
+            .receipt {
+              width: 300px;
+              padding: 10px;
+              margin: 0 auto;
+              background: #fff;
+            }
+            .header {
+              text-align: center;
+              margin-bottom: 10px;
+            }
+            .header h1 {
+              font-size: 20px;
+              font-weight: bold;
+              margin: 0;
+            }
+            .header p {
+              margin: 5px 0;
+            }
+            .divider {
+              border-top: 1px dashed #000;
+              margin: 10px 0;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+            }
+            th, td {
+              padding: 5px 0;
+            }
+            th {
+              text-align: left;
+            }
+            th.right, td.right {
+              text-align: right;
+            }
+            .total {
+              display: flex;
+              justify-content: space-between;
+              font-weight: bold;
+              margin-top: 10px;
+            }
+            .footer {
+              text-align: center;
+              margin-top: 10px;
+            }
+            @media print {
+              body * {
+                visibility: hidden;
+              }
+              .receipt, .receipt * {
+                visibility: visible;
+              }
+              .receipt {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 300px;
+                margin: 0;
+                padding: 10px;
+              }
+              @page {
+                size: 80mm auto;
+                margin: 0;
+              }
+            }
           </style>
         </head>
         <body>
-          <div id="receipt"></div>
-          <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-          <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-          <script src="https://unpkg.com/date-fns@2.30.0/dist/date-fns.min.js"></script>
+          <div class="receipt">
+            <div class="header">
+              <h1>Gsaheb Cafe</h1>
+              <p>Order #${order.order_number || order.id}</p>
+              <p>Table ${order.tables?.number || order.table_id}</p>
+              <p>Date: ${formattedDate}</p>
+            </div>
+            <div class="divider"></div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Item</th>
+                  <th class="right">Qty</th>
+                  <th class="right">Price</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${order.items.map(item => `
+                  <tr>
+                    <td style="max-width: 180px; word-break: break-word;">${item.name}</td>
+                    <td class="right">${item.quantity || 1}</td>
+                    <td class="right">₹${(item.price * (item.quantity || 1)).toFixed(2)}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+            <div class="divider"></div>
+            <div class="total">
+              <span>Total</span>
+              <span>₹${total.toFixed(2)}</span>
+            </div>
+            <div class="footer">
+              <p>Thank you for dining with us!</p>
+            </div>
+          </div>
           <script>
-            // Define PrintableReceipt component
-            ${PrintableReceipt.toString()}
-            
-            // Render the receipt
-            const root = ReactDOM.createRoot(document.getElementById('receipt'));
-            root.render(
-              React.createElement(PrintableReceipt, { order: ${JSON.stringify(order)} })
-            );
-
-            // Trigger print after rendering
-            window.onload = () => {
-              window.print();
-              window.onafterprint = () => window.close();
-            };
+            try {
+              window.onload = () => {
+                window.print();
+                window.onafterprint = () => window.close();
+              };
+            } catch (err) {
+              console.error('Print error:', err);
+            }
           </script>
         </body>
       </html>
@@ -596,7 +596,7 @@ export default function Admin() {
           const time = formatToIST(new Date(order.created_at)).split(' ')[1];
           const items = order.items.map(item => `${item.name} x${item.quantity || 1}`).join(', ');
           return `${order.order_number || order.id},${date},${time},${order.tables?.number || order.table_id},${order.status},${total.toFixed(2)},${items}`;
-        })
+        }),
       ];
     } else {
       csv = [
@@ -607,7 +607,7 @@ export default function Admin() {
             const totalPrice = (item.price * (item.quantity || 1)).toFixed(2);
             return `${order.order_number || order.id},${date},${item.name},${item.quantity || 1},${item.price.toFixed(2)},${totalPrice},${order.status},${order.tables?.number || order.table_id}`;
           });
-        })
+        }),
       ];
     }
     const bom = '\uFEFF';
@@ -911,7 +911,7 @@ export default function Admin() {
                         aria-label="Custom end date"
                       />
                     </div>
-                  )}
+                )}
                 </div>
                 <StatusFilter
                   label="Status"
@@ -952,14 +952,14 @@ export default function Admin() {
                             <button
                               className="text-blue-600 hover:text-blue-800"
                               onClick={() => setViewingOrder(order)}
-                              aria-label={`View invoice for ${order.order_number || order.id}`}
+                              aria-label={`View invoice for order ${order.order_number || order.id}`}
                             >
                               View
                             </button>
                             <button
                               className="text-gray-600 hover:text-gray-800"
                               onClick={() => printBill(order)}
-                              aria-label={`Print invoice for ${order.order_number || order.id}`}
+                              aria-label={`Print invoice for order ${order.order_number || order.id}`}
                             >
                               <PrinterIcon className="h-5 w-5" />
                             </button>
@@ -969,7 +969,7 @@ export default function Admin() {
                     })}
                   </tbody>
                 </table>
-                <div className="flex justify-between mt-4">
+                <div className="flex justify-between items-center mt-4">
                   <button
                     className="bg-gray-500 text-white px-4 py-2 rounded-lg disabled:opacity-50"
                     onClick={() => setHistoryFilters({ ...historyFilters, page: historyFilters.page - 1 })}
@@ -1054,7 +1054,7 @@ export default function Admin() {
                     type="text"
                     value={newItem.name}
                     onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
-                    className="border p-2 w-full rounded-lg"
+                    className="border p-2 rounded-lg w-full"
                     aria-label="Item name"
                   />
                 </div>
@@ -1064,7 +1064,7 @@ export default function Admin() {
                     type="text"
                     value={newItem.category}
                     onChange={(e) => setNewItem({ ...newItem, category: e.target.value })}
-                    className="border p-2 w-full rounded-lg"
+                    className="border p-2 rounded-lg w-full"
                     aria-label="Item category"
                   />
                 </div>
@@ -1074,7 +1074,7 @@ export default function Admin() {
                     type="number"
                     value={newItem.price}
                     onChange={(e) => setNewItem({ ...newItem, price: e.target.value })}
-                    className="border p-2 w-full rounded-lg"
+                    className="border p-2 rounded-lg w-full"
                     aria-label="Item price"
                   />
                 </div>
@@ -1193,7 +1193,7 @@ export default function Admin() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">Date Range</label>
-                  <div className="flex gap-2">
+                  0<div className="flex gap-2">
                     <DatePicker
                       selected={exportFilters.startDate}
                       onChange={date => setExportFilters({ ...exportFilters, startDate: date })}
