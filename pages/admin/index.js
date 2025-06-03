@@ -12,7 +12,7 @@ export default function Admin() {
   const [orders, setOrders] = useState([]);
   const [paidOrders, setPaidOrders] = useState([]);
   const [menuItems, setMenuItems] = useState([]);
-  const [newItem, setNewItem] = useState({ name: '', category: '', price: '', is_available: true });
+  const [newItem, setNewItem] = useState({ name: '', category: '', price: '', is_available: true, image: null });
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -40,6 +40,9 @@ export default function Admin() {
   const [viewingOrder, setViewingOrder] = useState(null);
   const [weeklyRevenue, setWeeklyRevenue] = useState(0);
   const [monthlyRevenue, setMonthlyRevenue] = useState(0);
+  const [paymentType, setPaymentType] = useState('');
+  const [showPaymentModal, setShowPaymentModal] = useState(null);
+  const [editingItemId, setEditingItemId] = useState(null);
 
   useEffect(() => {
     localStorage.setItem('activeTab', activeTab);
@@ -85,7 +88,7 @@ export default function Admin() {
         const response = await fetch(`${apiUrl}/api/admin/orders`);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
-        setOrders(data);
+        setOrders(data || []);
       } catch (err) {
         setError(`Failed to fetch orders: ${err.message}`);
       }
@@ -137,7 +140,7 @@ export default function Admin() {
         const response = await fetch(`${apiUrl}/api/admin/orders/history?${params}`);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
-        setPaidOrders(data);
+        setPaidOrders(data || []);
       } catch (err) {
         setError(`Failed to fetch paid orders: ${err.message}`);
       }
@@ -151,7 +154,6 @@ export default function Admin() {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
         const now = new Date();
 
-        // Weekly Revenue (last 7 days)
         const weekStart = new Date(now);
         weekStart.setDate(now.getDate() - 7);
         weekStart.setHours(0, 0, 0, 0);
@@ -168,7 +170,6 @@ export default function Admin() {
         const weekData = await weekResponse.json();
         setWeeklyRevenue(weekData.totalRevenue || 0);
 
-        // Monthly Revenue (last 30 days)
         const monthStart = new Date(now);
         monthStart.setDate(now.getDate() - 30);
         monthStart.setHours(0, 0, 0, 0);
@@ -196,7 +197,7 @@ export default function Admin() {
       try {
         const { data, error } = await supabase.from('menu_items').select('*');
         if (error) throw error;
-        setMenuItems(data);
+        setMenuItems(data || []);
       } catch (err) {
         setError(`Failed to fetch menu: ${err.message}`);
       }
@@ -242,7 +243,7 @@ export default function Admin() {
       const response = await fetch(`${apiUrl}/api/admin/orders/history?${params}`);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
-      setHistoryOrders(data);
+      setHistoryOrders(data || []);
     } catch (err) {
       setError(`Failed to fetch order history: ${err.message}`);
     }
@@ -252,6 +253,8 @@ export default function Admin() {
     if (isLoggedIn && activeTab === 'Order History') fetchHistory();
   }, [isLoggedIn, activeTab, historyFilters.dateRange, historyFilters.statuses, historyFilters.customStart, historyFilters.customEnd]);
 
+  // Disabled KOT printing
+  /*
   useEffect(() => {
     if (!isLoggedIn) return;
     const subscription = supabase
@@ -271,6 +274,7 @@ export default function Admin() {
       .subscribe();
     return () => supabase.removeChannel(subscription);
   }, [isLoggedIn]);
+  */
 
   const handleLogin = async () => {
     try {
@@ -283,9 +287,17 @@ export default function Admin() {
   };
 
   const markAsPaid = async (orderId) => {
+    if (!paymentType) {
+      setError('Please select a payment type');
+      return;
+    }
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
-      const response = await fetch(`${apiUrl}/api/orders/${orderId}/pay`, { method: 'PATCH' });
+      const response = await fetch(`${apiUrl}/api/orders/${orderId}/pay`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payment_type: paymentType })
+      });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       setOrders(orders.filter(order => order.id !== orderId));
       const todayStart = new Date();
@@ -300,8 +312,10 @@ export default function Admin() {
       const paidResponse = await fetch(`${apiUrl}/api/admin/orders/history?${params}`);
       if (paidResponse.ok) {
         const paidData = await paidResponse.json();
-        setPaidOrders(paidData);
+        setPaidOrders(paidData || []);
       }
+      setShowPaymentModal(null);
+      setPaymentType('');
     } catch (err) {
       setError(`Failed to mark order as paid: ${err.message}`);
     }
@@ -364,20 +378,68 @@ export default function Admin() {
       return;
     }
     try {
+      let image_url = null;
+      if (newItem.image) {
+        const fileExt = newItem.image.name.split('.').pop();
+        const fileName = `${Date.now()}.${fileExt}`;
+        const { error: uploadError } = await supabase.storage
+          .from('menu-images')
+          .upload(fileName, newItem.image);
+        if (uploadError) throw uploadError;
+        const { data: urlData } = supabase.storage
+          .from('menu-images')
+          .getPublicUrl(fileName);
+        image_url = urlData.publicUrl;
+      }
       const { data, error } = await supabase
         .from('menu_items')
         .insert([{
           name: newItem.name,
           category: newItem.category || '',
           price: parseFloat(newItem.price),
-          is_available: newItem.is_available
+          is_available: newItem.is_available,
+          image_url
         }])
         .select();
       if (error) throw error;
       setMenuItems([...menuItems, data[0]]);
-      setNewItem({ name: '', category: '', price: '', is_available: true });
+      setNewItem({ name: '', category: '', price: '', is_available: true, image: null });
     } catch (err) {
       setError(`Failed to add item: ${err.message}`);
+    }
+  };
+
+  const updateMenuItemImage = async (itemId) => {
+    try {
+      const fileInput = document.createElement('input');
+      fileInput.type = 'file';
+      fileInput.accept = 'image/*';
+      fileInput.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${itemId}_${Date.now()}.${fileExt}`;
+        const { error: uploadError } = await supabase.storage
+          .from('menu-images')
+          .upload(fileName, file);
+        if (uploadError) throw uploadError;
+        const { data: urlData } = supabase.storage
+          .from('menu-images')
+          .getPublicUrl(fileName);
+        const image_url = urlData.publicUrl;
+        const { error: updateError } = await supabase
+          .from('menu_items')
+          .update({ image_url })
+          .eq('id', itemId);
+        if (updateError) throw updateError;
+        setMenuItems(menuItems.map(item =>
+          item.id === itemId ? { ...item, image_url } : item
+        ));
+        setEditingItemId(null);
+      };
+      fileInput.click();
+    } catch (err) {
+      setError(`Failed to update item image: ${err.message}`);
     }
   };
 
@@ -409,6 +471,8 @@ export default function Admin() {
     }
   };
 
+  // Disabled KOT printing
+  /*
   const printKOT = async (order) => {
     try {
       const devices = await navigator.usb.getDevices();
@@ -498,12 +562,14 @@ export default function Admin() {
       setError(`Failed to print KOT: ${err.message}. Ensure printers are connected and support WebUSB.`);
     }
   };
+  */
 
   const printBill = async (order) => {
     try {
       const devices = await navigator.usb.getDevices();
+      // ESYPOS ETP 5311 250N (confirm productId)
       const adminPrinter = devices.find(d => d.vendorId === 0x04b8 && d.productId === 0x0e17);
-      if (!adminPrinter) throw new Error('No compatible admin printer found');
+      if (!adminPrinter) throw new Error('No compatible admin printer found (ESYPOS ETP 5311 250N)');
       await adminPrinter.open();
       await adminPrinter.selectConfiguration(1);
       await adminPrinter.claimInterface(0);
@@ -550,7 +616,7 @@ export default function Admin() {
       await adminPrinter.transferOut(1, buffer);
       await adminPrinter.close();
     } catch (err) {
-      setError(`Failed to print bill: ${err.message}. Ensure admin printer is connected and supports WebUSB.`);
+      setError(`Failed to print bill: ${err.message}. Ensure the ESYPOS ETP 5311 250N printer is connected and supports WebUSB.`);
     }
   };
 
@@ -569,14 +635,15 @@ export default function Admin() {
         itemCounts[item.name] = (itemCounts[item.name] || 0) + (item.quantity || 1);
       });
     });
-    const mostSoldItem = Object.entries(itemCounts)
-      .sort((a, b) => b[1] - a[1])[0] || ['None', 0];
+    const mostSoldItem = Object.entries(itemCounts).length > 0
+      ? Object.entries(itemCounts).sort((a, b) => b[1] - a[1])[0]
+      : ['None', 0];
     const ordersByHour = Array(24).fill(0);
     todaysOrders.forEach(order => {
       const hour = parseInt(formatToISTHourOnly(new Date(order.created_at)));
       ordersByHour[hour]++;
     });
-    const peakHour = ordersByHour.indexOf(Math.max(...ordersByHour));
+    const peakHour = ordersByHour.reduce((max, val, idx) => val > ordersByHour[max] ? idx : max, 0);
     const totalItemsSold = todaysOrders.reduce((sum, order) =>
       sum + order.items.reduce((s, item) => s + (item.quantity || 1), 0), 0
     );
@@ -598,23 +665,23 @@ export default function Admin() {
     let csv;
     if (exportType === 'order') {
       csv = [
-        'Order ID,Date,Time,Table Number,Status,Total Amount,Items',
+        'Order ID,Date,Time,Table Number,Status,Payment Type,Total Amount,Items',
         ...filteredOrders.map(order => {
           const total = order.items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0);
           const date = formatToISTDateOnly(new Date(order.created_at));
           const time = formatToIST(new Date(order.created_at)).split(' ')[1];
           const items = order.items.map(item => `${item.name} x${item.quantity || 1}`).join(', ');
-          return `${order.order_number || order.id},${date},${time},${order.tables?.number || order.table_id},${order.status},${total.toFixed(2)},${items}`;
+          return `${order.order_number || order.id},${date},${time},${order.tables?.number || order.table_id},${order.status},${order.payment_type || ''},${total.toFixed(2)},${items}`;
         })
       ];
     } else {
       csv = [
-        'Order ID,Date,Item Name,Quantity,Unit Price,Total Price,Status,Table Number',
+        'Order ID,Date,Item Name,Quantity,Unit Price,Total Price,Status,Payment Type,Table Number',
         ...filteredOrders.flatMap(order => {
           const date = formatToISTDateOnly(new Date(order.created_at));
           return order.items.map(item => {
             const totalPrice = (item.price * (item.quantity || 1)).toFixed(2);
-            return `${order.order_number || order.id},${date},${item.name},${item.quantity || 1},${item.price.toFixed(2)},${totalPrice},${order.status},${order.tables?.number || order.table_id}`;
+            return `${order.order_number || order.id},${date},${item.name},${item.quantity || 1},${item.price.toFixed(2)},${totalPrice},${order.status},${order.payment_type || ''},${order.tables?.number || order.table_id}`;
           });
         })
       ];
@@ -758,7 +825,7 @@ export default function Admin() {
                           </button>
                           <button
                             className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 flex items-center gap-2"
-                            onClick={() => markAsPaid(order.id)}
+                            onClick={() => setShowPaymentModal(order.id)}
                             aria-label={`Mark order ${order.order_number || order.id} as paid`}
                           >
                             Mark as Paid
@@ -800,6 +867,46 @@ export default function Admin() {
                 })}
               </div>
             )}
+          </div>
+        )}
+
+        {showPaymentModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+            <div className="bg-white p-6 rounded-lg max-w-md w-full">
+              <h3 className="text-xl font-bold mb-4">Mark Order as Paid</h3>
+              <label className="block text-sm font-medium mb-1">Payment Type</label>
+              <select
+                value={paymentType}
+                onChange={(e) => setPaymentType(e.target.value)}
+                className="border p-2 w-full rounded-lg mb-4"
+                aria-label="Select payment type"
+              >
+                <option value="">Select Payment Type</option>
+                <option value="UPI">UPI</option>
+                <option value="Card">Card</option>
+                <option value="Cash">Cash</option>
+                <option value="Bank">Bank</option>
+              </select>
+              <div className="flex justify-end gap-2">
+                <button
+                  className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600"
+                  onClick={() => {
+                    setShowPaymentModal(null);
+                    setPaymentType('');
+                  }}
+                  aria-label="Cancel"
+                >
+                  Cancel
+                </button>
+                <button
+                  className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700"
+                  onClick={() => markAsPaid(showPaymentModal)}
+                  aria-label="Confirm payment"
+                >
+                  Confirm
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
@@ -941,6 +1048,7 @@ export default function Admin() {
                       <th className="text-left py-3 px-4">Table</th>
                       <th className="text-right py-3 px-4">Total</th>
                       <th className="text-left py-3 px-4">Status</th>
+                      <th className="text-left py-3 px-4">Payment Type</th>
                       <th className="text-center py-3 px-4">Actions</th>
                     </tr>
                   </thead>
@@ -957,6 +1065,7 @@ export default function Admin() {
                           <td className="py-3 px-4">{order.tables?.number || order.table_id}</td>
                           <td className="text-right py-3 px-4">₹{total.toFixed(2)}</td>
                           <td className="py-3 px-4">{order.status}</td>
+                          <td className="py-3 px-4">{order.payment_type || '-'}</td>
                           <td className="text-center py-3 px-4 flex gap-2 justify-center">
                             <button
                               className="text-blue-600 hover:text-blue-800"
@@ -1007,7 +1116,8 @@ export default function Admin() {
             <div className="bg-white p-6 rounded-lg max-w-2xl w-full">
               <h3 className="text-xl font-bold mb-4">Invoice #{viewingOrder.order_number || viewingOrder.id}</h3>
               <p className="text-sm text-gray-500 mb-2">{formatToIST(new Date(viewingOrder.created_at))}</p>
-              <p className="text-sm text-gray-500 mb-4">Table {viewingOrder.tables?.number || viewingOrder.table_id}</p>
+              <p className="text-sm text-gray-500 mb-2">Table {viewingOrder.tables?.number || viewingOrder.table_id}</p>
+              <p className="text-sm text-gray-500 mb-4">Payment Type: {viewingOrder.payment_type || '-'}</p>
               <table className="w-full mb-4">
                 <thead>
                   <tr className="border-b">
@@ -1087,6 +1197,16 @@ export default function Admin() {
                     aria-label="Item price"
                   />
                 </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Image</label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => setNewItem({ ...newItem, image: e.target.files[0] })}
+                    className="border p-2 w-full rounded-lg"
+                    aria-label="Item image"
+                  />
+                </div>
                 <div className="flex items-center">
                   <label className="flex items-center">
                     <input
@@ -1112,6 +1232,7 @@ export default function Admin() {
             <table className="w-full bg-white rounded-lg shadow-md">
               <thead>
                 <tr className="border-b">
+                  <th className="text-left py-3 px-4">Image</th>
                   <th className="text-left py-3 px-4">Name</th>
                   <th className="text-left py-3 px-4">Category</th>
                   <th className="text-right py-3 px-4">Price</th>
@@ -1122,6 +1243,13 @@ export default function Admin() {
               <tbody>
                 {menuItems.map(item => (
                   <tr key={item.id} className="border-b">
+                    <td className="py-3 px-4">
+                      {item.image_url ? (
+                        <img src={item.image_url} alt={item.name} className="h-12 w-12 object-cover rounded" />
+                      ) : (
+                        'No Image'
+                      )}
+                    </td>
                     <td className="py-3 px-4">{item.name}</td>
                     <td className="py-3 px-4">{item.category || '-'}</td>
                     <td className="text-right py-3 px-4">₹{item.price.toFixed(2)}</td>
@@ -1133,6 +1261,13 @@ export default function Admin() {
                       )}
                     </td>
                     <td className="text-center py-3 px-4 flex gap-2 justify-center">
+                      <button
+                        className="text-blue-600 hover:text-blue-800"
+                        onClick={() => updateMenuItemImage(item.id)}
+                        aria-label={`Update image for ${item.name}`}
+                      >
+                        Update Image
+                      </button>
                       <button
                         className="text-blue-600 hover:text-blue-800"
                         onClick={() => toggleAvailability(item.id, item.is_available)}
@@ -1158,48 +1293,55 @@ export default function Admin() {
         {activeTab === 'Data Analytics' && (
           <div>
             <h2 className="text-2xl font-bold text-gray-800 mb-6">Data Analytics</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-              <div className="bg-gradient-to-r from-blue-500 to-blue-700 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
-                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Total Orders</h3>
-                <p className="text-2xl font-bold">{analytics.totalOrders}</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <div className="bg-white p-6 rounded-lg shadow-md">
+                <h3 className="text-lg font-semibold mb-2">Total Orders</h3>
+                <p className="text-2xl font-bold text-blue-600">{analytics.totalOrders}</p>
               </div>
-              <div className="bg-gradient-to-r from-green-500 to-green-700 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
-                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Total Revenue</h3>
-                <p className="text-2xl font-bold">₹{analytics.totalRevenue.toFixed(2)}</p>
+              <div className="bg-white p-6 rounded-lg shadow-md">
+                <h3 className="text-lg font-semibold mb-2">Total Revenue</h3>
+                <p className="text-2xl font-bold text-blue-600">₹{analytics.totalRevenue.toFixed(2)}</p>
               </div>
-              <div className="bg-gradient-to-r from-purple-500 to-purple-700 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
-                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Most Sold Item</h3>
-                <p className="text-2xl font-bold">{analytics.mostSoldItem[0]}</p>
-                <p className="text-sm">{analytics.mostSoldItem[1]} units</p>
+              <div className="bg-white p-6 rounded-lg shadow-md">
+                <h3 className="text-lg font-semibold mb-2">Most Sold Item</h3>
+                <p className="text-2xl font-bold text-blue-600">{analytics.mostSoldItem[0]} ({analytics.mostSoldItem[1]})</p>
               </div>
-              <div className="bg-gradient-to-r from-orange-500 to-orange-700 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
-                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Peak Hour</h3>
-                <p className="text-2xl font-bold">
-                  {analytics.peakHour === -1 ? 'N/A' : `${analytics.peakHour}:00`}
-                </p>
+              <div className="bg-white p-6 rounded-lg shadow-md">
+                <h3 className="text-lg font-semibold mb-2">Peak Hour</h3>
+                <p className="text-2xl font-bold text-blue-600">{analytics.peakHour}:00</p>
               </div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-              <div className="bg-gradient-to-r from-teal-500 to-teal-700 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
-                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Weekly Revenue</h3>
-                <p className="text-2xl font-bold">₹{weeklyRevenue.toFixed(2)}</p>
+              <div className="bg-white p-6 rounded-lg shadow-md">
+                <h3 className="text-lg font-semibold mb-2">Total Items Sold</h3>
+                <p className="text-2xl font-bold text-blue-600">{analytics.totalItemsSold}</p>
               </div>
-              <div className="bg-gradient-to-r from-indigo-500 to-indigo-700 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
-                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Monthly Revenue</h3>
-                <p className="text-2xl font-bold">₹{monthlyRevenue.toFixed(2)}</p>
+              <div className="bg-white p-6 rounded-lg shadow-md">
+                <h3 className="text-lg font-semibold mb-2">Average Order Value</h3>
+                <p className="text-2xl font-bold text-blue-600">₹{analytics.aov.toFixed(2)}</p>
               </div>
-              <div className="bg-gradient-to-r from-pink-500 to-pink-700 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
-                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Average Order Value</h3>
-                <p className="text-2xl font-bold">₹{analytics.aov.toFixed(2)}</p>
+              <div className="bg-white p-6 rounded-lg shadow-md">
+                <h3 className="text-lg font-semibold mb-2">Weekly Revenue</h3>
+                <p className="text-2xl font-bold text-blue-600">₹{weeklyRevenue.toFixed(2)}</p>
               </div>
-              <div className="bg-gradient-to-r from-yellow-500 to-yellow-700 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
-                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Total Items Sold</h3>
-                <p className="text-2xl font-bold">{analytics.totalItemsSold}</p>
+              <div className="bg-white p-6 rounded-lg shadow-md">
+                <h3 className="text-lg font-semibold mb-2">Monthly Revenue</h3>
+                <p className="text-2xl font-bold text-blue-600">₹{monthlyRevenue.toFixed(2)}</p>
               </div>
             </div>
-            <div className="bg-white p-6 rounded-lg shadow-md">
-              <h3 className="text-lg font-semibold mb-4">Export Orders</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div className="mt-8 bg-white p-6 rounded-lg shadow-md">
+              <h3 className="text-lg font-semibold mb-4">Export Data</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Export Type</label>
+                  <select
+                    className="border p-2 w-full rounded-lg"
+                    value={exportType}
+                    onChange={(e) => setExportType(e.target.value)}
+                    aria-label="Export type"
+                  >
+                    <option value="order">Order Summary</option>
+                    <option value="item">Item Details</option>
+                  </select>
+                </div>
                 <div>
                   <label className="block text-sm font-medium mb-1">Date Range</label>
                   <div className="flex gap-2">
@@ -1217,39 +1359,18 @@ export default function Admin() {
                     />
                   </div>
                 </div>
-              </div>
-              <div className="flex gap-4">
-                <label className="flex items-center">
-                  <input
-                    type="radio"
-                    name="exportType"
-                    value="order"
-                    checked={exportType === 'order'}
-                    onChange={() => setExportType('order')}
-                    className="mr-2"
-                    aria-label="Export order-level"
-                  />
-                  Order-Level
-                </label>
-                <label className="flex items-center">
-                  <input
-                    type="radio"
-                    name="exportType"
-                    value="item"
-                    checked={exportType === 'item'}
-                    onChange={() => setExportType('item')}
-                    className="mr-2"
-                    aria-label="Export item-level"
-                  />
-                  Item-Level
-                </label>
+                <StatusFilter
+                  label="Status"
+                  statuses={exportFilters.statuses}
+                  onChange={(newStatuses) => setExportFilters({ ...exportFilters, statuses: newStatuses })}
+                />
               </div>
               <button
-                className="mt-4 bg-blue-600 text-white px-4 py-3 rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
                 onClick={exportOrders}
-                aria-label="Export orders as CSV"
+                aria-label="Export orders"
               >
-                Export Orders
+                Export CSV
               </button>
             </div>
           </div>
