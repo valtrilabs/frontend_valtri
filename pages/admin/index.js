@@ -21,7 +21,7 @@ export default function Admin() {
   const [orders, setOrders] = useState([]);
   const [paidOrders, setPaidOrders] = useState([]);
   const [menuItems, setMenuItems] = useState([]);
-  const [newItem, setNewItem] = useState({ name: '', category: '', price: '', is_available: true });
+  const [newItem, setNewItem] = useState({ name: '', category: '', price: '', is_available: true, image_file: null });
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -381,6 +381,20 @@ export default function Admin() {
       return;
     }
     try {
+      let image_url = null;
+      if (newItem.image_file) {
+        const fileName = `${Date.now()}_${newItem.image_file.name}`;
+        const { error: uploadError } = await supabase.storage
+          .from('menu-images')
+          .upload(fileName, newItem.image_file);
+        if (uploadError) throw uploadError;
+
+        const { data: urlData } = supabase.storage
+          .from('menu-images')
+          .getPublicUrl(fileName);
+        image_url = urlData.publicUrl;
+      }
+
       const { data, error } = await supabase
         .from('menu_items')
         .insert([{
@@ -388,11 +402,12 @@ export default function Admin() {
           category: newItem.category || '',
           price: parseFloat(newItem.price),
           is_available: newItem.is_available,
+          image_url,
         }])
         .select();
       if (error) throw error;
       setMenuItems([...menuItems, data[0]]);
-      setNewItem({ name: '', category: '', price: '', is_available: true });
+      setNewItem({ name: '', category: '', price: '', is_available: true, image_file: null });
     } catch (err) {
       setError(`Failed to add item: ${err.message}`);
     }
@@ -408,6 +423,34 @@ export default function Admin() {
       setMenuItems(menuItems.filter(item => item.id !== itemId));
     } catch (err) {
       setError(`Failed to remove item: ${err.message}`);
+    }
+  };
+
+  const updateMenuItemImage = async (itemId, file) => {
+    if (!file) return;
+    try {
+      const fileName = `${Date.now()}_${file.name}`;
+      const { error: uploadError } = await supabase.storage
+        .from('menu-images')
+        .upload(fileName, file);
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage
+        .from('menu-images')
+        .getPublicUrl(fileName);
+      const image_url = urlData.publicUrl;
+
+      const { error: updateError } = await supabase
+        .from('menu_items')
+        .update({ image_url })
+        .eq('id', itemId);
+      if (updateError) throw updateError;
+
+      setMenuItems(menuItems.map(item =>
+        item.id === itemId ? { ...item, image_url } : item
+      ));
+    } catch (err) {
+      setError(`Failed to update item image: ${err.message}`);
     }
   };
 
@@ -944,173 +987,6 @@ export default function Admin() {
           </div>
         )}
 
-        {activeTab === 'Order History' && (
-          <div>
-            <h2 className="text-2xl font-bold text-gray-800 mb-6">Order History</h2>
-            <div className="bg-white p-6 rounded-lg shadow-md mb-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Date Range</label>
-                  <select
-                    className="border p-2 w-full rounded-lg"
-                    value={historyFilters.dateRange}
-                    onChange={(e) => setHistoryFilters({ ...historyFilters, dateRange: e.target.value, page: 1 })}
-                    aria-label="Date range filter"
-                  >
-                    <option value="today">Today</option>
-                    <option value="yesterday">Yesterday</option>
-                    <option value="last7days">Last 7 Days</option>
-                    <option value="custom">Custom Range</option>
-                  </select>
-                  {historyFilters.dateRange === 'custom' && (
-                    <div className="mt-2 flex gap-2">
-                      <DatePicker
-                        selected={historyFilters.customStart}
-                        onChange={date => setHistoryFilters({ ...historyFilters, customStart: date, page: 1 })}
-                        className="border p-2 rounded-lg w-full"
-                        aria-label="Custom start date"
-                      />
-                      <DatePicker
-                        selected={historyFilters.customEnd}
-                        onChange={date => setHistoryFilters({ ...historyFilters, customEnd: date, page: 1 })}
-                        className="border p-2 rounded-lg w-full"
-                        aria-label="Custom end date"
-                      />
-                    </div>
-                  )}
-                </div>
-                <StatusFilter
-                  label="Status"
-                  statuses={historyFilters.statuses}
-                  onChange={(newStatuses) => setHistoryFilters({ ...historyFilters, statuses: newStatuses, page: 1 })}
-                />
-              </div>
-            </div>
-            {historyOrders.length === 0 ? (
-              <p className="text-gray-500 text-center">No orders found</p>
-            ) : (
-              <>
-                <table className="w-full bg-white rounded-lg shadow-md">
-                  <thead>
-                    <tr className="border-b">
-                      <th className="text-left py-3 px-4">Order ID</th>
-                      <th className="text-left py-3 px-4">Date</th>
-                      <th className="text-left py-3 px-4">Table</th>
-                      <th className="text-right py-3 px-4">Total</th>
-                      <th className="text-left py-3 px-4">Status</th>
-                      <th className="text-left py-3 px-4">Payment Method</th>
-                      <th className="text-center py-3 px-4">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {historyOrders.slice(
-                      (historyFilters.page - 1) * historyFilters.perPage,
-                      historyFilters.page * historyFilters.perPage
-                    ).map(order => {
-                      const total = order.items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0);
-                      return (
-                        <tr key={order.id} className="border-b">
-                          <td className="py-3 px-4">{order.order_number || order.id}</td>
-                          <td className="py-3 px-4">{formatToIST(new Date(order.created_at))}</td>
-                          <td className="py-3 px-4">{order.tables?.number || order.table_id}</td>
-                          <td className="text-right py-3 px-4">₹{total.toFixed(2)}</td>
-                          <td className="py-3 px-4">{order.status}</td>
-                          <td className="py-3 px-4">{order.payment_type || 'N/A'}</td>
-                          <td className="text-center py-3 px-4 flex gap-2 justify-center">
-                            <button
-                              className="text-blue-600 hover:text-blue-800"
-                              onClick={() => setViewingOrder(order)}
-                              aria-label={`View invoice for order ${order.order_number || order.id}`}
-                            >
-                              View
-                            </button>
-                            <button
-                              className="text-gray-600 hover:text-gray-800"
-                              onClick={() => printBill(order)}
-                              aria-label={`Print invoice for order ${order.order_number || order.id}`}
-                            >
-                              <PrinterIcon className="h-5 w-5" />
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-                <div className="flex justify-between items-center mt-4">
-                  <button
-                    className="bg-gray-500 text-white px-4 py-2 rounded-lg disabled:opacity-50"
-                    onClick={() => setHistoryFilters({ ...historyFilters, page: historyFilters.page - 1 })}
-                    disabled={historyFilters.page === 1}
-                    aria-label="Previous page"
-                  >
-                    Previous
-                  </button>
-                  <span>Page {historyFilters.page} of {Math.ceil(historyOrders.length / historyFilters.perPage)}</span>
-                  <button
-                    className="bg-gray-500 text-white px-4 py-2 rounded-lg disabled:opacity-50"
-                    onClick={() => setHistoryFilters({ ...historyFilters, page: historyFilters.page + 1 })}
-                    disabled={historyFilters.page * historyFilters.perPage >= historyOrders.length}
-                    aria-label="Next page"
-                  >
-                    Next
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        )}
-
-        {viewingOrder && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-            <div className="bg-white p-6 rounded-lg max-w-2xl w-full">
-              <h3 className="text-xl font-bold mb-4">Invoice #{viewingOrder.order_number || viewingOrder.id}</h3>
-              <p className="text-sm text-gray-500 mb-2">{formatToIST(new Date(viewingOrder.created_at))}</p>
-              <p className="text-sm text-gray-500 mb-2">Table {viewingOrder.tables?.number || viewingOrder.table_id}</p>
-              <p className="text-sm text-gray-500 mb-4">Payment Method: {viewingOrder.payment_type || 'N/A'}</p>
-              <table className="w-full mb-4">
-                <thead>
-                  <tr className="border-b">
-                    <th className="text-left py-2">Item</th>
-                    <th className="text-right py-2">Qty</th>
-                    <th className="text-right py-2">Price</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {viewingOrder.items.map((item, index) => (
-                    <tr key={index}>
-                      <td className="py-2">{item.name}</td>
-                      <td className="text-right py-2">{item.quantity || 1}</td>
-                      <td className="text-right py-2">₹{(item.price * (item.quantity || 1)).toFixed(2)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <div className="flex justify-between font-semibold mb-4">
-                <span>Total</span>
-                <span>₹{viewingOrder.items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0).toFixed(2)}</span>
-              </div>
-              <div className="flex justify-end gap-2">
-                <button
-                  className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600"
-                  onClick={() => setViewingOrder(null)}
-                  aria-label="Close invoice"
-                >
-                  Close
-                </button>
-                <button
-                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2"
-                  onClick={() => printBill(viewingOrder)}
-                  aria-label={`Print invoice for ${viewingOrder.order_number || viewingOrder.id}`}
-                >
-                  <PrinterIcon className="h-5 w-5" />
-                  Print
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
         {activeTab === 'Menu Management' && (
           <div>
             <h2 className="text-2xl font-bold text-gray-800 mb-6">Menu Management</h2>
@@ -1145,6 +1021,16 @@ export default function Admin() {
                     onChange={(e) => setNewItem({ ...newItem, price: e.target.value })}
                     className="border p-2 rounded-lg w-full"
                     aria-label="Item price"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Image (Optional)</label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => setNewItem({ ...newItem, image_file: e.target.files[0] })}
+                    className="border p-2 rounded-lg w-full"
+                    aria-label="Item image"
                   />
                 </div>
                 <div className="flex items-center">
@@ -1200,6 +1086,20 @@ export default function Admin() {
                       >
                         {item.is_available ? 'Disable' : 'Enable'}
                       </button>
+                      <label
+                        className="text-blue-600 hover:text-blue-800 cursor-pointer"
+                        htmlFor={`image-upload-${item.id}`}
+                        aria-label={`Upload image for ${item.name}`}
+                      >
+                        Upload Image
+                      </label>
+                      <input
+                        id={`image-upload-${item.id}`}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => updateMenuItemImage(item.id, e.target.files[0])}
+                      />
                       <button
                         className="text-red-600 hover:text-red-800"
                         onClick={() => removeMenuItem(item.id)}
@@ -1248,7 +1148,7 @@ export default function Admin() {
                 <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Monthly Revenue</h3>
                 <p className="text-2xl font-bold">₹{monthlyRevenue.toFixed(2)}</p>
               </div>
-              <div className="bg-gradient-to-r from-pink-500 to-pink-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+              <div className="bg-gradient-to-r from-pink-ANALYTICS to-pink-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
                 <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Average Order Value</h3>
                 <p className="text-2xl font-bold">₹{analytics.aov.toFixed(2)}</p>
               </div>
