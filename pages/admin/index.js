@@ -26,9 +26,7 @@ export default function Admin() {
   const [password, setPassword] = useState('');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [error, setError] = useState(null);
-  const [activeTab, setActiveTab] = useState(() => {
-    return typeof window !== 'undefined' ? localStorage.getItem('activeTab') || 'Pending Orders' : 'Pending Orders';
-  });
+  const [activeTab, setActiveTab] = useState(() => typeof window !== 'undefined' ? localStorage.getItem('activeTab') || 'Pending Orders' : 'Pending Orders');
   const [editingOrder, setEditingOrder] = useState(null);
   const [editedItems, setEditedItems] = useState([]);
   const [historyOrders, setHistoryOrders] = useState([]);
@@ -164,7 +162,6 @@ export default function Admin() {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
         const now = new Date();
 
-        // Weekly Revenue (last 7 days)
         const weekStart = new Date(now);
         weekStart.setDate(now.getDate() - 7);
         weekStart.setHours(0, 0, 0, 0);
@@ -181,7 +178,6 @@ export default function Admin() {
         const weekData = await weekResponse.json();
         setWeeklyRevenue(weekData.totalRevenue || 0);
 
-        // Monthly Revenue (last 30 days)
         const monthStart = new Date(now);
         monthStart.setDate(now.getDate() - 30);
         monthStart.setHours(0, 0, 0, 0);
@@ -258,6 +254,8 @@ export default function Admin() {
       if (historyFilters.statuses.length) {
         params.append('statuses', historyFilters.statuses.join(','));
       }
+      params.append('page', historyFilters.page.toString());
+      params.append('perPage', historyFilters.perPage.toString());
       const response = await fetch(`${apiUrl}/api/admin/orders/history?${params}`);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
@@ -269,7 +267,7 @@ export default function Admin() {
 
   useEffect(() => {
     if (isLoggedIn && activeTab === 'Order History') fetchHistory();
-  }, [isLoggedIn, activeTab, historyFilters.dateRange, historyFilters.statuses, historyFilters.customStart, historyFilters.customEnd]);
+  }, [isLoggedIn, activeTab, historyFilters]);
 
   const handleLogin = async () => {
     try {
@@ -292,7 +290,6 @@ export default function Admin() {
       setError('Please select a payment method');
       return;
     }
-
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
       const response = await fetch(`${apiUrl}/api/orders/${selectedOrderId}/pay`, {
@@ -381,20 +378,21 @@ export default function Admin() {
       return;
     }
     try {
-      let image_url = null;
+      let image_url = 'https://images.unsplash.com/photo-1550547660-d9450f859349'; // Default Unsplash image
       if (newItem.image_file) {
         const fileName = `${Date.now()}_${newItem.image_file.name}`;
+        console.log('Uploading image:', fileName);
         const { error: uploadError } = await supabase.storage
           .from('menu-images')
-          .upload(fileName, newItem.image_file);
-        if (uploadError) throw uploadError;
-
-        const { data: urlData } = supabase.storage
-          .from('menu-images')
-          .getPublicUrl(fileName);
+          .upload(fileName, newItem.image_file, { cacheControl: '3600', upsert: true });
+        if (uploadError) {
+          console.error('Image upload error:', uploadError);
+          throw uploadError;
+        }
+        const { data: urlData } = supabase.storage.from('menu-images').getPublicUrl(fileName);
         image_url = urlData.publicUrl;
+        console.log('Image public URL:', image_url);
       }
-
       const { data, error } = await supabase
         .from('menu_items')
         .insert([{
@@ -405,20 +403,23 @@ export default function Admin() {
           image_url,
         }])
         .select();
-      if (error) throw error;
+      if (error) {
+        console.error('Menu item insert error:', error);
+        throw error;
+      }
+      console.log('Inserted menu item:', data[0]);
       setMenuItems([...menuItems, data[0]]);
       setNewItem({ name: '', category: '', price: '', is_available: true, image_file: null });
+      setError(null);
     } catch (err) {
       setError(`Failed to add item: ${err.message}`);
+      console.error('Add menu item error:', err);
     }
   };
 
   const removeMenuItem = async (itemId) => {
     try {
-      const { error } = await supabase
-        .from('menu_items')
-        .delete()
-        .eq('id', itemId);
+      const { error } = await supabase.from('menu_items').delete().eq('id', itemId);
       if (error) throw error;
       setMenuItems(menuItems.filter(item => item.id !== itemId));
     } catch (err) {
@@ -427,30 +428,37 @@ export default function Admin() {
   };
 
   const updateMenuItemImage = async (itemId, file) => {
-    if (!file) return;
+    if (!file) {
+      setError('No file selected');
+      return;
+    }
     try {
       const fileName = `${Date.now()}_${file.name}`;
+      console.log('Uploading image for item', itemId, ':', fileName);
       const { error: uploadError } = await supabase.storage
         .from('menu-images')
-        .upload(fileName, file);
-      if (uploadError) throw uploadError;
-
-      const { data: urlData } = supabase.storage
-        .from('menu-images')
-        .getPublicUrl(fileName);
+        .upload(fileName, file, { cacheControl: '3600', upsert: true });
+      if (uploadError) {
+        console.error('Image upload error:', uploadError);
+        throw uploadError;
+      }
+      const { data: urlData } = supabase.storage.from('menu-images').getPublicUrl(fileName);
       const image_url = urlData.publicUrl;
-
+      console.log('Image public URL:', image_url);
       const { error: updateError } = await supabase
         .from('menu_items')
         .update({ image_url })
         .eq('id', itemId);
-      if (updateError) throw updateError;
-
-      setMenuItems(menuItems.map(item =>
-        item.id === itemId ? { ...item, image_url } : item
-      ));
+      if (updateError) {
+        console.error('Menu item update error:', updateError);
+        throw updateError;
+      }
+      setMenuItems(menuItems.map(item => item.id === itemId ? { ...item, image_url } : item));
+      console.log('Updated menu item image for ID:', itemId);
+      setError(null);
     } catch (err) {
       setError(`Failed to update item image: ${err.message}`);
+      console.error('Update menu item image error:', err);
     }
   };
 
@@ -461,9 +469,7 @@ export default function Admin() {
         .update({ is_available: !currentStatus })
         .eq('id', itemId);
       if (error) throw error;
-      setMenuItems(menuItems.map(item =>
-        item.id === itemId ? { ...item, is_available: !currentStatus } : item
-      ));
+      setMenuItems(menuItems.map(item => item.id === itemId ? { ...item, is_available: !currentStatus } : item));
     } catch (err) {
       setError(`Failed to update availability: ${err.message}`);
     }
@@ -472,92 +478,28 @@ export default function Admin() {
   const printBill = (order) => {
     const printWindow = window.open('', '_blank', 'width=400,height=600');
     if (!printWindow) {
-      setError('Failed to open print window. Please allow pop-ups for this site.');
+      setError('Failed to open print window. Please allow pop-ups.');
       return;
     }
-
     const total = order.items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0);
     const formattedDate = formatToIST(new Date(order.created_at));
-
     printWindow.document.write(`
       <!DOCTYPE html>
       <html>
         <head>
           <title>Receipt - Order #${order.order_number || order.id}</title>
           <style>
-            body {
-              margin: 0;
-              padding: 0;
-              font-family: Arial, sans-serif;
-              font-size: 14px;
-              line-height: 1.4;
-              color: #000;
-            }
-            .receipt {
-              width: 300px;
-              padding: 10px;
-              margin: 0 auto;
-              background: #fff;
-            }
-            .header {
-              text-align: center;
-              margin-bottom: 10px;
-            }
-            .header h1 {
-              font-size: 20px;
-              font-weight: bold;
-              margin: 0;
-            }
-            .header p {
-              margin: 5px 0;
-            }
-            .divider {
-              border-top: 1px dashed #000;
-              margin: 10px 0;
-            }
-            table {
-              width: 100%;
-              border-collapse: collapse;
-            }
-            th, td {
-              padding: 5px 0;
-            }
-            th {
-              text-align: left;
-            }
-            th.right, td.right {
-              text-align: right;
-            }
-            .total {
-              display: flex;
-              justify-content: space-between;
-              font-weight: bold;
-              margin-top: 10px;
-            }
-            .footer {
-              text-align: center;
-              margin-top: 10px;
-            }
-            @media print {
-              body * {
-                visibility: hidden;
-              }
-              .receipt, .receipt * {
-                visibility: visible;
-              }
-              .receipt {
-                position: absolute;
-                left: 0;
-                top: 0;
-                width: 300px;
-                margin: 0;
-                padding: 10px;
-              }
-              @page {
-                size: 80mm auto;
-                margin: 0;
-              }
-            }
+            body { font-family: Arial, sans-serif; font-size: 14px; margin: 0; padding: 10px; }
+            .receipt { width: 300px; margin: 0 auto; }
+            .header { text-align: center; margin-bottom: 10px; }
+            .header h1 { font-size: 20px; margin: 0; }
+            .divider { border-top: 1px dashed #000; margin: 10px 0; }
+            table { width: 100%; border-collapse: collapse; }
+            th, td { padding: 5px 0; }
+            th.right, td.right { text-align: right; }
+            .total { display: flex; justify-content: space-between; font-weight: bold; margin-top: 10px; }
+            .footer { text-align: center; margin-top: 10px; }
+            @media print { .receipt { width: 300px; } @page { size: 80mm auto; margin: 0; } }
           </style>
         </head>
         <body>
@@ -581,7 +523,7 @@ export default function Admin() {
               <tbody>
                 ${order.items.map(item => `
                   <tr>
-                    <td style="max-width: 180px; word-break: break-word;">${item.name}</td>
+                    <td>${item.name}</td>
                     <td class="right">${item.quantity || 1}</td>
                     <td class="right">₹${(item.price * (item.quantity || 1)).toFixed(2)}</td>
                   </tr>
@@ -598,53 +540,36 @@ export default function Admin() {
             </div>
           </div>
           <script>
-            try {
-              window.onload = () => {
-                window.print();
-                window.onafterprint = () => window.close();
-              };
-            } catch (err) {
-              console.error('Print error:', err);
-            }
+            window.onload = () => { window.print(); window.onafterprint = () => window.close(); };
           </script>
         </body>
       </html>
     `);
-
     printWindow.document.close();
   };
 
   const getAnalytics = () => {
     const today = formatToISTDateForComparison(new Date());
-    const todaysOrders = paidOrders.filter(order =>
-      formatToISTDateForComparison(new Date(order.created_at)) === today
-    );
+    const todaysOrders = paidOrders.filter(order => formatToISTDateForComparison(new Date(order.created_at)) === today);
     const totalOrders = todaysOrders.length;
-    const totalRevenue = todaysOrders.reduce((sum, order) =>
-      sum + order.items.reduce((s, item) => s + (item.price * (item.quantity || 1)), 0), 0
-    );
+    const totalRevenue = todaysOrders.reduce((sum, order) => sum + order.items.reduce((s, item) => s + (item.price * (item.quantity || 1)), 0), 0);
     const itemCounts = {};
     todaysOrders.forEach(order => {
       order.items.forEach(item => {
         itemCounts[item.name] = (itemCounts[item.name] || 0) + (item.quantity || 1);
       });
     });
-    const mostSoldItem = Object.entries(itemCounts)
-      .sort((a, b) => b[1] - a[1])[0] || ['None', 0];
+    const mostSoldItem = Object.entries(itemCounts).sort((a, b) => b[1] - a[1])[0] || ['None', 0];
     const ordersByHour = Array(24).fill(0);
     todaysOrders.forEach(order => {
       const hour = parseInt(formatToISTHourOnly(new Date(order.created_at)));
       ordersByHour[hour]++;
     });
     const peakHour = ordersByHour.indexOf(Math.max(...ordersByHour));
-    const totalItemsSold = todaysOrders.reduce((sum, order) =>
-      sum + order.items.reduce((s, item) => s + (item.quantity || 1), 0), 0
-    );
+    const totalItemsSold = todaysOrders.reduce((sum, order) => sum + order.items.reduce((s, item) => s + (item.quantity || 1), 0), 0);
     const aov = totalOrders > 0 ? totalRevenue / totalOrders : 0;
     return { totalOrders, totalRevenue, mostSoldItem, peakHour, totalItemsSold, aov };
   };
-
-  const analytics = getAnalytics();
 
   const exportOrders = () => {
     const startDate = new Date(exportFilters.startDate.setHours(0, 0, 0, 0)).toISOString();
@@ -717,6 +642,8 @@ export default function Admin() {
     </div>
   );
 
+  const analytics = getAnalytics();
+
   if (!isLoggedIn) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100">
@@ -774,7 +701,7 @@ export default function Admin() {
           ))}
         </nav>
         <button
-          className="w-full mt-4 bg-red-600 text-white py-3 rounded-lg hover:bg-red-700 transition"
+          className="w-full mt-4 bg-red-600 text-white py-2 rounded-lg hover:bg-red-700 transition"
           onClick={() => supabase.auth.signOut().then(() => setIsLoggedIn(false))}
           aria-label="Logout"
         >
@@ -793,18 +720,18 @@ export default function Admin() {
           <div>
             <h2 className="text-2xl font-bold text-gray-800 mb-6">Pending Orders</h2>
             {orders.length === 0 ? (
-              <p className="text-gray-500 text-center">No pending orders</p>
+              <p className="text-center text-gray-500">No pending orders found.</p>
             ) : (
               <div className="grid gap-6">
                 {orders.map(order => {
                   const total = order.items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0);
-                  const formattedDate = formatToIST(new Date(order.created_at));
+                  const formattedDateTime = formatToIST(new Date(order.created_at));
                   return (
                     <div key={order.id} className="bg-white p-6 rounded-lg shadow-md">
-                      <div className="flex justify-between items-center mb-4">
+                      <div className="flex justify-between mb-4">
                         <div>
                           <h3 className="text-lg font-semibold">Order #{order.order_number || order.id}</h3>
-                          <p className="text-sm text-gray-500">{formattedDate}</p>
+                          <p className="text-sm text-gray-500">{formattedDateTime}</p>
                           <p className="text-sm text-gray-500">Table {order.tables?.number || order.table_id}</p>
                         </div>
                         <div className="flex gap-2">
@@ -814,7 +741,7 @@ export default function Admin() {
                             aria-label={`Edit order ${order.order_number || order.id}`}
                           >
                             <PencilSquareIcon className="h-5 w-5" />
-                            Edit
+                            Edit Order
                           </button>
                           <button
                             className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 flex items-center gap-2"
@@ -864,9 +791,9 @@ export default function Admin() {
         )}
 
         {showPaymentModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-            <div className="bg-white p-6 rounded-lg max-w-md w-full">
-              <h3 className="text-xl font-bold mb-4">Select Payment Method</h3>
+          <div className="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center">
+            <div className="bg-white p-6 rounded-lg max-w-md">
+              <h3 className="text-xl font-semibold mb-4">Select Payment Method</h3>
               <select
                 className="border p-2 w-full rounded-lg mb-4"
                 value={paymentType}
@@ -887,12 +814,12 @@ export default function Admin() {
                     setSelectedOrderId(null);
                     setPaymentType('');
                   }}
-                  aria-label="Cancel payment selection"
+                  aria-label="Close payment modal"
                 >
                   Cancel
                 </button>
                 <button
-                  className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700"
+                  className="bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600"
                   onClick={markAsPaid}
                   aria-label="Confirm payment"
                 >
@@ -904,9 +831,9 @@ export default function Admin() {
         )}
 
         {editingOrder && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-            <div className="bg-white p-6 rounded-lg max-w-2xl w-full">
-              <h3 className="text-xl font-bold mb-4">Edit Order #{editingOrder.order_number || editingOrder.id}</h3>
+          <div className="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center">
+            <div className="bg-white p-6 rounded-lg max-w-xl">
+              <h3 className="text-xl font-semibold mb-4">Edit Order #{editingOrder.order_number || editingOrder.id}</h3>
               <table className="w-full mb-4">
                 <thead>
                   <tr className="border-b">
@@ -976,7 +903,7 @@ export default function Admin() {
                   Cancel
                 </button>
                 <button
-                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+                  className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600"
                   onClick={saveOrder}
                   aria-label="Save order changes"
                 >
@@ -984,6 +911,176 @@ export default function Admin() {
                 </button>
               </div>
             </div>
+          </div>
+        )}
+
+        {activeTab === 'Order History' && (
+          <div>
+            <h2 className="text-2xl font-bold text-gray-800 mb-6">Order History</h2>
+            <div className="bg-white p-6 rounded-lg shadow-md mb-6">
+              <h3 className="text-lg font-semibold mb-4">Filters</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Date Range</label>
+                  <select
+                    className="border p-2 w-full rounded-lg"
+                    value={historyFilters.dateRange}
+                    onChange={(e) => setHistoryFilters({ ...historyFilters, dateRange: e.target.value })}
+                    aria-label="Select date range"
+                  >
+                    <option value="today">Today</option>
+                    <option value="yesterday">Yesterday</option>
+                    <option value="last7days">Last 7 Days</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                </div>
+                {historyFilters.dateRange === 'custom' && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Start Date</label>
+                      <DatePicker
+                        selected={historyFilters.customStart}
+                        onChange={(date) => setHistoryFilters({ ...historyFilters, customStart: date })}
+                        className="border p-2 w-full rounded-lg"
+                        aria-label="Start date picker"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">End Date</label>
+                      <DatePicker
+                        selected={historyFilters.customEnd}
+                        onChange={(date) => setHistoryFilters({ ...historyFilters, customEnd: date })}
+                        className="border p-2 w-full rounded-lg"
+                        aria-label="End date picker"
+                      />
+                    </div>
+                  </>
+                )}
+                <StatusFilter
+                  label="Status"
+                  statuses={historyFilters.statuses}
+                  onChange={(newStatuses) => setHistoryFilters({ ...historyFilters, statuses: newStatuses })}
+                />
+              </div>
+            </div>
+            {historyOrders.length === 0 ? (
+              <p className="text-gray-500 text-center">No orders found</p>
+            ) : (
+              <>
+                <table className="w-full bg-white rounded-lg shadow-md">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left py-3 px-4">Order ID</th>
+                      <th className="text-left py-3 px-4">Date</th>
+                      <th className="text-left py-3 px-4">Table</th>
+                      <th className="text-right py-3 px-4">Total</th>
+                      <th className="text-center py-3 px-4">Status</th>
+                      <th className="text-center py-3 px-4">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {historyOrders.map(order => {
+                      const total = order.items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0);
+                      return (
+                        <tr key={order.id} className="border-b">
+                          <td className="py-3 px-4">{order.order_number || order.id}</td>
+                          <td className="py-3 px-4">{formatToIST(new Date(order.created_at))}</td>
+                          <td className="py-3 px-4">{order.tables?.number || order.table_id}</td>
+                          <td className="text-right py-3 px-4">₹{total.toFixed(2)}</td>
+                          <td className="text-center py-3 px-4">
+                            <span
+                              className={`px-2 py-1 rounded ${
+                                order.status === 'paid' ? 'bg-green-100 text-green-600' : 'bg-yellow-100 text-yellow-600'
+                              }`}
+                            >
+                              {order.status}
+                            </span>
+                          </td>
+                          <td className="text-center py-3 px-4">
+                            <button
+                              className="text-blue-600 hover:text-blue-800"
+                              onClick={() => setViewingOrder(order)}
+                              aria-label={`View order ${order.order_number || order.id}`}
+                            >
+                              View
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                <div className="flex justify-between mt-4">
+                  <button
+                    className="bg-blue-500 text-white px-4 py-2 rounded-lg disabled:bg-gray-300"
+                    onClick={() => setHistoryFilters({ ...historyFilters, page: historyFilters.page - 1 })}
+                    disabled={historyFilters.page === 1}
+                    aria-label="Previous page"
+                  >
+                    Previous
+                  </button>
+                  <span>Page {historyFilters.page}</span>
+                  <button
+                    className="bg-blue-500 text-white px-4 py-2 rounded-lg disabled:bg-gray-300"
+                    onClick={() => setHistoryFilters({ ...historyFilters, page: historyFilters.page + 1 })}
+                    disabled={historyOrders.length < historyFilters.perPage}
+                    aria-label="Next page"
+                  >
+                    Next
+                  </button>
+                </div>
+              </>
+            )}
+            {viewingOrder && (
+              <div className="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center">
+                <div className="bg-white p-6 rounded-lg max-w-xl">
+                  <h3 className="text-xl font-semibold mb-4">Order #{viewingOrder.order_number || viewingOrder.id}</h3>
+                  <p className="text-sm text-gray-500 mb-2">{formatToIST(new Date(viewingOrder.created_at))}</p>
+                  <p className="text-sm text-gray-500 mb-4">Table {viewingOrder.tables?.number || viewingOrder.table_id}</p>
+                  <table className="w-full mb-4">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left py-2">Item</th>
+                        <th className="text-right py-2">Qty</th>
+                        <th className="text-right py-2">Price</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {viewingOrder.items.map((item, index) => (
+                        <tr key={index}>
+                          <td className="py-2">{item.name}</td>
+                          <td className="text-right py-2">{item.quantity || 1}</td>
+                          <td className="text-right py-2">₹{(item.price * (item.quantity || 1)).toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div className="flex justify-between font-semibold mb-4">
+                    <span>Total</span>
+                    <span>₹{viewingOrder.items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0).toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <button
+                      className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600"
+                      onClick={() => setViewingOrder(null)}
+                      aria-label="Close order view"
+                    >
+                      Close
+                    </button>
+                    <button
+                      className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600"
+                      onClick={() => {
+                        printBill(viewingOrder);
+                        setViewingOrder(null);
+                      }}
+                      aria-label={`Print bill for order ${viewingOrder.order_number || viewingOrder.id}`}
+                    >
+                      Print Bill
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -1021,16 +1118,6 @@ export default function Admin() {
                     onChange={(e) => setNewItem({ ...newItem, price: e.target.value })}
                     className="border p-2 rounded-lg w-full"
                     aria-label="Item price"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Image (Optional)</label>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => setNewItem({ ...newItem, image_file: e.target.files[0] })}
-                    className="border p-2 rounded-lg w-full"
-                    aria-label="Item image"
                   />
                 </div>
                 <div className="flex items-center">
@@ -1086,20 +1173,6 @@ export default function Admin() {
                       >
                         {item.is_available ? 'Disable' : 'Enable'}
                       </button>
-                      <label
-                        className="text-blue-600 hover:text-blue-800 cursor-pointer"
-                        htmlFor={`image-upload-${item.id}`}
-                        aria-label={`Upload image for ${item.name}`}
-                      >
-                        Upload Image
-                      </label>
-                      <input
-                        id={`image-upload-${item.id}`}
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={(e) => updateMenuItemImage(item.id, e.target.files[0])}
-                      />
                       <button
                         className="text-red-600 hover:text-red-800"
                         onClick={() => removeMenuItem(item.id)}
@@ -1148,7 +1221,7 @@ export default function Admin() {
                 <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Monthly Revenue</h3>
                 <p className="text-2xl font-bold">₹{monthlyRevenue.toFixed(2)}</p>
               </div>
-              <div className="bg-gradient-to-r from-pink-ANALYTICS to-pink-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+              <div className="bg-gradient-to-r from-pink-500 to-pink-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
                 <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Average Order Value</h3>
                 <p className="text-2xl font-bold">₹{analytics.aov.toFixed(2)}</p>
               </div>
