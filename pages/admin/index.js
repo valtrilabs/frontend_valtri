@@ -21,7 +21,7 @@ export default function Admin() {
   const [orders, setOrders] = useState([]);
   const [paidOrders, setPaidOrders] = useState([]);
   const [menuItems, setMenuItems] = useState([]);
-  const [newItem, setNewItem] = useState({ name: '', category: '', price: '', is_available: true });
+  const [newItem, setNewItem] = useState({ name: '', category: '', price: '', is_available: true, image: null });
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -381,6 +381,18 @@ export default function Admin() {
       return;
     }
     try {
+      let imageUrl = null;
+      if (newItem.image) {
+        const fileName = `${Date.now()}_${newItem.image.name}`;
+        const { error: uploadError } = await supabase.storage
+          .from('menu-images')
+          .upload(fileName, newItem.image);
+        if (uploadError) throw uploadError;
+        const { data: urlData } = supabase.storage
+          .from('menu-images')
+          .getPublicUrl(fileName);
+        imageUrl = urlData.publicUrl;
+      }
       const { data, error } = await supabase
         .from('menu_items')
         .insert([{
@@ -388,11 +400,12 @@ export default function Admin() {
           category: newItem.category || '',
           price: parseFloat(newItem.price),
           is_available: newItem.is_available,
+          image_url: imageUrl,
         }])
         .select();
       if (error) throw error;
       setMenuItems([...menuItems, data[0]]);
-      setNewItem({ name: '', category: '', price: '', is_available: true });
+      setNewItem({ name: '', category: '', price: '', is_available: true, image: null });
     } catch (err) {
       setError(`Failed to add item: ${err.message}`);
     }
@@ -400,6 +413,14 @@ export default function Admin() {
 
   const removeMenuItem = async (itemId) => {
     try {
+      const item = menuItems.find(item => item.id === itemId);
+      if (item?.image_url) {
+        const fileName = item.image_url.split('/').pop();
+        const { error: storageError } = await supabase.storage
+          .from('menu-images')
+          .remove([fileName]);
+        if (storageError) throw storageError;
+      }
       const { error } = await supabase
         .from('menu_items')
         .delete()
@@ -1116,7 +1137,7 @@ export default function Admin() {
             <h2 className="text-2xl font-bold text-gray-800 mb-6">Menu Management</h2>
             <div className="bg-white p-6 rounded-lg shadow-md mb-6">
               <h3 className="text-lg font-semibold mb-4">Add New Item</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">Name</label>
                   <input
@@ -1145,6 +1166,16 @@ export default function Admin() {
                     onChange={(e) => setNewItem({ ...newItem, price: e.target.value })}
                     className="border p-2 rounded-lg w-full"
                     aria-label="Item price"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Image</label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => setNewItem({ ...newItem, image: e.target.files[0] })}
+                    className="border p-2 rounded-lg w-full"
+                    aria-label="Item image"
                   />
                 </div>
                 <div className="flex items-center">
@@ -1176,6 +1207,7 @@ export default function Admin() {
                   <th className="text-left py-3 px-4">Category</th>
                   <th className="text-right py-3 px-4">Price</th>
                   <th className="text-center py-3 px-4">Available</th>
+                  <th className="text-center py-3 px-4">Image</th>
                   <th className="text-center py-3 px-4">Actions</th>
                 </tr>
               </thead>
@@ -1190,6 +1222,51 @@ export default function Admin() {
                         <CheckCircleIcon className="h-5 w-5 text-green-500 mx-auto" />
                       ) : (
                         <XCircleIcon className="h-5 w-5 text-red-500 mx-auto" />
+                      )}
+                    </td>
+                    <td className="text-center py-3 px-4">
+                      {item.image_url ? (
+                        <img
+                          src={item.image_url}
+                          alt={item.name}
+                          className="h-12 w-12 object-cover rounded-md mx-auto"
+                          onError={(e) => {
+                            e.target.src = 'https://images.unsplash.com/photo-1550547660-d9450f859349';
+                          }}
+                        />
+                      ) : (
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={async (e) => {
+                            const file = e.target.files[0];
+                            if (file) {
+                              try {
+                                const fileName = `${Date.now()}_${file.name}`;
+                                const { error: uploadError } = await supabase.storage
+                                  .from('menu-images')
+                                  .upload(fileName, file);
+                                if (uploadError) throw uploadError;
+                                const { data: urlData } = supabase.storage
+                                  .from('menu-images')
+                                  .getPublicUrl(fileName);
+                                const imageUrl = urlData.publicUrl;
+                                const { error: updateError } = await supabase
+                                  .from('menu_items')
+                                  .update({ image_url: imageUrl })
+                                  .eq('id', item.id);
+                                if (updateError) throw updateError;
+                                setMenuItems(menuItems.map(i =>
+                                  i.id === item.id ? { ...i, image_url: imageUrl } : i
+                                ));
+                              } catch (err) {
+                                setError(`Failed to upload image: ${err.message}`);
+                              }
+                            }
+                          }}
+                          className="mx-auto"
+                          aria-label={`Upload image for ${item.name}`}
+                        />
                       )}
                     </td>
                     <td className="text-center py-3 px-4 flex gap-2 justify-center">

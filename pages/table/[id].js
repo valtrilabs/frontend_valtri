@@ -247,6 +247,9 @@ export default function Table() {
                 src={item.image_url || 'https://images.unsplash.com/photo-1550547660-d9450f859349'}
                 alt={item.name}
                 className="w-full h-32 object-cover rounded-md mb-2"
+                onError={(e) => {
+                  e.target.src = 'https://images.unsplash.com/photo-1550547660-d9450f859349';
+                }}
               />
               <h2 className="font-semibold text-lg">{item.name}</h2>
               <p className="text-sm text-gray-500">{item.category}</p>
