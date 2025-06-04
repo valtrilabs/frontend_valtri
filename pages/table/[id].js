@@ -244,9 +244,7 @@ export default function Table() {
               className="bg-white p-4 rounded-lg shadow-md hover:shadow-lg transition-shadow"
             >
               <img
-                src={item.image_url && typeof item.image_url === 'string' && item.image_url.trim() !== ''
-                  ? item.image_url
-                  : 'https://images.unsplash.com/photo-1550547660-d9450f859349'}
+                src={item.image_url || 'https://images.unsplash.com/photo-1550547660-d9450f859349'}
                 alt={item.name}
                 className="w-full h-32 object-cover rounded-md mb-2"
               />
