@@ -239,30 +239,36 @@ export default function Table() {
           <p className="col-span-full text-center text-gray-500">No items in this category.</p>
         ) : (
           filteredMenu.map(item => (
-            <div
-              key={item.id}
-              className="bg-white p-4 rounded-lg shadow-md hover:shadow-lg transition-shadow"
-            >
-              <img
-                src={item.image_url || 'https://images.unsplash.com/photo-1550547660-d9450f859349'}
-                alt={item.name}
-                className="w-full h-32 object-cover rounded-md mb-2"
-              />
-              <h2 className="font-semibold text-lg">{item.name}</h2>
-              <p className="text-sm text-gray-500">{item.category}</p>
-              <p className="text-sm font-medium">₹{item.price.toFixed(2)}</p>
-              <button
-                className={`mt-2 w-full py-2 rounded-lg text-white transition-colors duration-300 ${
-                  addedItems[item.id]
-                    ? 'bg-blue-500 hover:bg-blue-600'
-                    : 'bg-green-500 hover:bg-green-600'
-                }`}
-                onClick={() => addToCart(item)}
-                aria-label={addedItems[item.id] ? `${item.name} added to cart` : `Add ${item.name} to cart`}
-              >
-                {addedItems[item.id] ? 'Added' : 'Add to Cart'}
-              </button>
-            </div>
+// ... (rest of the file remains unchanged)
+
+<div
+  key={item.id}
+  className="bg-white p-4 rounded-lg shadow-md hover:shadow-lg transition-shadow"
+>
+  <img
+    src={item.image_url && item.image_url.trim() !== '' 
+      ? item.image_url 
+      : 'https://images.unsplash.com/photo-1550547660-d9450f859349'}
+    alt={item.name}
+    className="w-full h-32 object-cover rounded-md mb-2"
+  />
+  <h2 className="font-semibold text-lg">{item.name}</h2>
+  <p className="text-sm text-gray-500">{item.category}</p>
+  <p className="text-sm font-medium">₹{item.price.toFixed(2)}</p>
+  <button
+    className={`mt-2 w-full py-2 rounded-lg text-white transition-colors duration-300 ${
+      addedItems[item.id]
+        ? 'bg-blue-500 hover:bg-blue-600'
+        : 'bg-green-500 hover:bg-green-600'
+    }`}
+    onClick={() => addToCart(item)}
+    aria-label={addedItems[item.id] ? `${item.name} added to cart` : `Add ${item.name} to cart`}
+  >
+    {addedItems[item.id] ? 'Added' : 'Add to Cart'}
+  </button>
+</div>
+
+// ... (rest of the file remains unchanged)
           ))
         )}
       </div>
