@@ -52,11 +52,6 @@ export default function Admin() {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState(null);
   const [paymentType, setPaymentType] = useState('');
-  const [isLoadingPaidOrders, setIsLoadingPaidOrders] = useState(false);
-
-  // Utility functions for date formatting
-  const formatToYYYYMMDD = (date) => format(new Date(date), 'yyyy-MM-dd');
-  const dateFromString = (str) => new Date(str);
 
   useEffect(() => {
     localStorage.setItem('activeTab', activeTab);
@@ -78,6 +73,12 @@ export default function Admin() {
     const utcDate = new Date(date);
     const istDate = add(utcDate, { hours: 5, minutes: 30 });
     return format(istDate, 'HH');
+  };
+
+  const formatToISTDateForComparison = (date) => {
+    const utcDate = new Date(date);
+    const istDate = add(utcDate, { hours: 5, minutes: 30 });
+    return format(istDate, 'yyyy-MM-dd');
   };
 
   useEffect(() => {
@@ -116,7 +117,7 @@ export default function Admin() {
             const response = await fetch(`${apiUrl}/api/orders/${newOrder.id}`);
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const orderDetails = await response.json();
-            setOrders((prevOrders) => [...prevOrders, orderDetails]);
+            setOrders(prevOrders => [...prevOrders, orderDetails]);
           } catch (err) {
             setError(`Failed to fetch new order: ${err.message}`);
           }
@@ -125,7 +126,7 @@ export default function Admin() {
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, (payload) => {
         const updatedOrder = payload.new;
         if (updatedOrder.status !== 'pending') {
-          setOrders((prevOrders) => prevOrders.filter((order) => order.id !== updatedOrder.id));
+          setOrders(prevOrders => prevOrders.filter(order => order.id !== updatedOrder.id));
         }
       })
       .subscribe();
@@ -134,45 +135,27 @@ export default function Admin() {
   }, [isLoggedIn, activeTab]);
 
   useEffect(() => {
-    async function fetchPaidOrdersWithRetry(maxRetries = 3, delayMs = 1000) {
-      setIsLoadingPaidOrders(true);
-      let retries = 0;
-
-      while (retries < maxRetries) {
-        try {
-          const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
-          const todayStart = new Date();
-          todayStart.setHours(0, 0, 0, 0);
-          const todayEnd = new Date();
-          todayEnd.setHours(23, 59, 59, 999);
-          const params = new URLSearchParams({
-            startDate: todayStart.toISOString(),
-            endDate: todayEnd.toISOString(),
-            statuses: 'paid',
-          });
-          const response = await fetch(`${apiUrl}/api/admin/orders/history?${params}`);
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          const data = await response.json();
-          console.log('fetchPaidOrders: Fetched data', data);
-          setPaidOrders((prev) => data.length > 0 ? data : prev);
-          setIsLoadingPaidOrders(false);
-          return;
-        } catch (err) {
-          retries++;
-          console.error(`fetchPaidOrders: Attempt ${retries} failed`, err.message);
-          if (retries === maxRetries) {
-            setError(`Failed to fetch paid orders after ${maxRetries} attempts: ${err.message}`);
-            setIsLoadingPaidOrders(false);
-            return;
-          }
-          await new Promise((resolve) => setTimeout(resolve, delayMs));
-        }
+    async function fetchPaidOrders() {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const todayEnd = new Date();
+        todayEnd.setHours(23, 59, 59, 999);
+        const params = new URLSearchParams({
+          startDate: todayStart.toISOString(),
+          endDate: todayEnd.toISOString(),
+          statuses: 'paid',
+        });
+        const response = await fetch(`${apiUrl}/api/admin/orders/history?${params}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        setPaidOrders(data);
+      } catch (err) {
+        setError(`Failed to fetch paid orders: ${err.message}`);
       }
     }
-
-    if (isLoggedIn && activeTab === 'Data Analytics') {
-      fetchPaidOrdersWithRetry();
-    }
+    if (isLoggedIn && activeTab === 'Data Analytics') fetchPaidOrders();
   }, [isLoggedIn, activeTab]);
 
   useEffect(() => {
@@ -231,8 +214,8 @@ export default function Admin() {
         setError(`Failed to fetch menu: ${err.message}`);
       }
     }
-    if (isLoggedIn && activeTab === 'Menu Management') fetchMenu();
-  }, [isLoggedIn, activeTab]);
+    if (isLoggedIn) fetchMenu();
+  }, [isLoggedIn]);
 
   const fetchHistory = async () => {
     try {
@@ -265,7 +248,7 @@ export default function Admin() {
           endDate = new Date(historyFilters.customEnd.setHours(23, 59, 59, 999)).toISOString();
           break;
         default:
-          return;
+          break;
       }
       const params = new URLSearchParams();
       if (startDate && endDate) {
@@ -318,8 +301,7 @@ export default function Admin() {
         body: JSON.stringify({ payment_type: paymentType }),
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      setOrders((prevOrders) => prevOrders.filter((order) => order.id !== selectedOrderId));
-      // Refresh paid orders
+      setOrders(orders.filter(order => order.id !== selectedOrderId));
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
       const todayEnd = new Date();
@@ -348,30 +330,25 @@ export default function Admin() {
   };
 
   const updateQuantity = (index, delta) => {
-    setEditedItems((prevItems) => {
-      const newItems = [...prevItems];
-      const newQuantity = Math.max(1, (newItems[index].quantity || 1) + delta);
-      newItems[index] = { ...newItems[index], quantity: newQuantity };
-      return newItems;
-    });
+    const newItems = [...editedItems];
+    const newQuantity = Math.max(1, (newItems[index].quantity || 1) + delta);
+    newItems[index] = { ...newItems[index], quantity: newQuantity };
+    setEditedItems(newItems);
   };
 
   const removeItem = (index) => {
-    setEditedItems((prevItems) => prevItems.filter((_, i) => i !== index));
+    setEditedItems(editedItems.filter((_, i) => i !== index));
   };
 
   const addItem = (itemId) => {
-    const menuItem = menuItems.find((item) => item.id === parseInt(itemId));
-    if (menuItem && !editedItems.some((item) => item.item_id === menuItem.id)) {
-      setEditedItems((prevItems) => [
-        ...prevItems,
-        {
-          item_id: menuItem.id,
-          name: menuItem.name,
-          price: menuItem.price,
-          quantity: 1,
-        },
-      ]);
+    const menuItem = menuItems.find(item => item.id === itemId);
+    if (menuItem && !editedItems.some(item => item.item_id === itemId)) {
+      setEditedItems([...editedItems, {
+        item_id: menuItem.id,
+        name: menuItem.name,
+        price: menuItem.price,
+        quantity: 1,
+      }]);
     }
   };
 
@@ -385,9 +362,7 @@ export default function Admin() {
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const updatedOrder = await response.json();
-      setOrders((prevOrders) =>
-        prevOrders.map((o) => (o.id === editingOrder.id ? updatedOrder : o))
-      );
+      setOrders(orders.map(o => o.id === editingOrder.id ? updatedOrder : o));
       setEditingOrder(null);
       setEditedItems([]);
     } catch (err) {
@@ -408,58 +383,111 @@ export default function Admin() {
     try {
       const { data, error } = await supabase
         .from('menu_items')
-        .insert([
-          {
-            name: newItem.name,
-            category: newItem.category || '',
-            price: parseFloat(newItem.price),
-            is_available: newItem.is_available,
-          },
-        ])
-        .select()
-        .single();
+        .insert([{
+          name: newItem.name,
+          category: newItem.category || '',
+          price: parseFloat(newItem.price),
+          is_available: newItem.is_available,
+        }])
+        .select();
       if (error) throw error;
-      setMenuItems((prevItems) => [...prevItems, data]);
+      setMenuItems([...menuItems, data[0]]);
       setNewItem({ name: '', category: '', price: '', is_available: true });
     } catch (err) {
       setError(`Failed to add item: ${err.message}`);
     }
   };
 
-  const removeMenuItem = async (id) => {
+  const removeMenuItem = async (itemId) => {
     try {
-      const { error } = await supabase.from('menu_items').delete().eq('id', id);
+      const { error } = await supabase
+        .from('menu_items')
+        .delete()
+        .eq('id', itemId);
       if (error) throw error;
-      setMenuItems((prevItems) => prevItems.filter((item) => item.id !== id));
+      setMenuItems(menuItems.filter(item => item.id !== itemId));
     } catch (err) {
       setError(`Failed to remove item: ${err.message}`);
     }
   };
 
-  const toggleAvailability = async (id, currentAvailability) => {
+  const toggleAvailability = async (itemId, currentStatus) => {
     try {
       const { error } = await supabase
         .from('menu_items')
-        .update({ is_available: !currentAvailability })
-        .eq('id', id)
-        .select();
+        .update({ is_available: !currentStatus })
+        .eq('id', itemId);
       if (error) throw error;
-      setMenuItems((prevItems) =>
-        prevItems.map((item) =>
-          item.id === id ? { ...item, is_available: !currentAvailability } : item
-        )
-      );
+      setMenuItems(menuItems.map(item =>
+        item.id === itemId ? { ...item, is_available: !currentStatus } : item
+      ));
     } catch (err) {
       setError(`Failed to update availability: ${err.message}`);
     }
   };
 
-  const printBill = (order) => {
-    const printWindow = window.open('', '_blank', 'width=300,height=600');
-    if (!printWindow) {
-      setError('Failed to open print window');
+  const uploadImage = async (itemId, file) => {
+    if (!file) {
+      setError('Please select an image to upload');
       return;
     }
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `item_${itemId}_${Date.now()}.${fileExt}`;
+      const { error: uploadError } = await supabase.storage
+        .from('menu-images')
+        .upload(fileName, file);
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage
+        .from('menu-images')
+        .getPublicUrl(fileName);
+      if (!urlData.publicUrl) throw new Error('Failed to get public URL');
+
+      const { error: updateError } = await supabase
+        .from('menu_items')
+        .update({ image_url: urlData.publicUrl })
+        .eq('id', itemId);
+      if (updateError) throw updateError;
+
+      setMenuItems(menuItems.map(item =>
+        item.id === itemId ? { ...item, image_url: urlData.publicUrl } : item
+      ));
+    } catch (err) {
+      setError(`Failed to upload image: ${err.message}`);
+    }
+  };
+
+  const deleteImage = async (itemId, imageUrl) => {
+    if (!imageUrl) return;
+    try {
+      const fileName = imageUrl.split('/').pop();
+      const { error: deleteError } = await supabase.storage
+        .from('menu-images')
+        .remove([fileName]);
+      if (deleteError) throw deleteError;
+
+      const { error: updateError } = await supabase
+        .from('menu_items')
+        .update({ image_url: null })
+        .eq('id', itemId);
+      if (updateError) throw updateError;
+
+      setMenuItems(menuItems.map(item =>
+        item.id === itemId ? { ...item, image_url: null } : item
+      ));
+    } catch (err) {
+      setError(`Failed to delete image: ${err.message}`);
+    }
+  };
+
+  const printBill = (order) => {
+    const printWindow = window.open('', '_blank', 'width=400,height=600');
+    if (!printWindow) {
+      setError('Failed to open print window. Please allow pop-ups for this site.');
+      return;
+    }
+
     const total = order.items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0);
     const formattedDate = formatToIST(new Date(order.created_at));
 
@@ -469,25 +497,85 @@ export default function Admin() {
         <head>
           <title>Receipt - Order #${order.order_number || order.id}</title>
           <style>
-            body { margin: 0; padding: 0; font-family: Arial, sans-serif; font-size: 12px; line-height: 1.4; color: #333; }
-            .receipt { width: 300px; padding: 20px; margin: 0 auto; background: #fff; }
-            .header { text-align: center; margin-bottom: 10px; }
-            .header h3 { font-size: 20px; font-weight: bold; margin: 0; }
-            .header p { margin: 4px 0; }
-            .divider { border-top: 1px dashed #333; margin: 10px 0; }
-            table { width: 100%; border-collapse: collapse; }
-            th, td { padding: 6px 0; }
-            th { text-align: left; font-weight: bold; }
-            th.right, td.right-align { text-align: right; }
-            .total { display: flex; justify-content: space-between; font-weight: bold; margin-top: 10px; }
-            .footer { text-align: center; margin-top: 10px; }
-            @media print { body { width: 80mm; margin: 0; } .receipt { width: 100%; padding: 10px; margin: 0; } }
+            body {
+              margin: 0;
+              padding: 0;
+              font-family: Arial, sans-serif;
+              font-size: 14px;
+              line-height: 1.4;
+              color: #000;
+            }
+            .receipt {
+              width: 300px;
+              padding: 10px;
+              margin: 0 auto;
+              background: #fff;
+            }
+            .header {
+              text-align: center;
+              margin-bottom: 10px;
+            }
+            .header h1 {
+              font-size: 20px;
+              font-weight: bold;
+              margin: 0;
+            }
+            .header p {
+              margin: 5px 0;
+            }
+            .divider {
+              border-top: 1px dashed #000;
+              margin: 10px 0;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+            }
+            th, td {
+              padding: 5px 0;
+            }
+            th {
+              text-align: left;
+            }
+            th.right, td.right {
+              text-align: right;
+            }
+            .total {
+              display: flex;
+              justify-content: space-between;
+              font-weight: bold;
+              margin-top: 10px;
+            }
+            .footer {
+              text-align: center;
+              margin-top: 10px;
+            }
+            @media print {
+              body * {
+                visibility: hidden;
+              }
+              .receipt, .receipt * {
+                visibility: visible;
+              }
+              .receipt {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 300px;
+                margin: 0;
+                padding: 10px;
+              }
+              @page {
+                size: 80mm auto;
+                margin: 0;
+              }
+            }
           </style>
         </head>
         <body>
           <div class="receipt">
             <div class="header">
-              <h3>Gsaheb Cafe</h3>
+              <h1>Gsaheb Cafe</h1>
               <p>Order #${order.order_number || order.id}</p>
               <p>Table ${order.tables?.number || order.table_id}</p>
               <p>Date: ${formattedDate}</p>
@@ -498,16 +586,16 @@ export default function Admin() {
               <thead>
                 <tr>
                   <th>Item</th>
-                  <th class="right-align">Qty.</th>
-                  <th class="right-align">Price</th>
+                  <th class="right">Qty</th>
+                  <th class="right">Price</th>
                 </tr>
               </thead>
               <tbody>
-                ${order.items.map((item) => `
+                ${order.items.map(item => `
                   <tr>
-                    <td style="max-width: 150px; word-break: break-word;">${item.name}</td>
-                    <td class="right-align">${item.quantity || 1}</td>
-                    <td class="right-align">${((item.quantity || 1) * item.price).toFixed(2)}</td>
+                    <td style="max-width: 180px; word-break: break-word;">${item.name}</td>
+                    <td class="right">${item.quantity || 1}</td>
+                    <td class="right">₹${(item.price * (item.quantity || 1)).toFixed(2)}</td>
                   </tr>
                 `).join('')}
               </tbody>
@@ -515,14 +603,21 @@ export default function Admin() {
             <div class="divider"></div>
             <div class="total">
               <span>Total</span>
-              <span>${total.toFixed(2)}</span>
+              <span>₹${total.toFixed(2)}</span>
             </div>
             <div class="footer">
-              <p>Thank you for your patronage!</p>
+              <p>Thank you for dining with us!</p>
             </div>
           </div>
           <script>
-            window.onload = () => { window.print(); window.close(); };
+            try {
+              window.onload = () => {
+                window.print();
+                window.onafterprint = () => window.close();
+              };
+            } catch (err) {
+              console.error('Print error:', err);
+            }
           </script>
         </body>
       </html>
@@ -532,114 +627,86 @@ export default function Admin() {
   };
 
   const getAnalytics = () => {
-    if (!paidOrders || paidOrders.length === 0) {
-      console.log('Analytics: No paid orders data available');
-      return {
-        totalOrders: 0,
-        totalRevenue: 0,
-        mostSoldItem: ['No data', 0],
-        peakHour: 'N/A',
-        totalItemsSold: 0,
-        aov: 0,
-      };
-    }
-
-    const today = formatToISTDateOnly(new Date());
-    const data = paidOrders.filter((order) =>
-      formatToISTDateOnly(new Date(order.created_at)) === today
+    const today = formatToISTDateForComparison(new Date());
+    const todaysOrders = paidOrders.filter(order =>
+      formatToISTDateForComparison(new Date(order.created_at)) === today
     );
-    const totalOrders = data.length;
-    const totalRevenue = data.reduce(
-      (sum, order) => sum + order.items.reduce((s, p) => s + (p.price * (p.quantity || 1)), 0),
-      0
+    const totalOrders = todaysOrders.length;
+    const totalRevenue = todaysOrders.reduce((sum, order) =>
+      sum + order.items.reduce((s, item) => s + (item.price * (item.quantity || 1)), 0), 0
     );
-
     const itemCounts = {};
-    data.forEach((order) => {
-      order.items.forEach((item) => {
+    todaysOrders.forEach(order => {
+      order.items.forEach(item => {
         itemCounts[item.name] = (itemCounts[item.name] || 0) + (item.quantity || 1);
       });
     });
-
-    const mostSoldItem = Object.entries(itemCounts).sort(([, a], [, b]) => b - a)[0] || ['No data', 0];
-
-    const ordersByHour = new Array(24).fill(0);
-    data.forEach((order) => {
+    const mostSoldItem = Object.entries(itemCounts)
+      .sort((a, b) => b[1] - a[1])[0] || ['None', 0];
+    const ordersByHour = Array(24).fill(0);
+    todaysOrders.forEach(order => {
       const hour = parseInt(formatToISTHourOnly(new Date(order.created_at)));
       ordersByHour[hour]++;
     });
-
     const peakHour = ordersByHour.indexOf(Math.max(...ordersByHour));
-    const totalItemsSold = data.reduce(
-      (sum, order) => sum + order.items.reduce((s, p) => s + (p.quantity || 1), 0),
-      0
+    const totalItemsSold = todaysOrders.reduce((sum, order) =>
+      sum + order.items.reduce((s, item) => s + (item.quantity || 1), 0), 0
     );
-
     const aov = totalOrders > 0 ? totalRevenue / totalOrders : 0;
-
-    return { totalOrders, totalRevenue, mostSoldItem, peakHour: peakHour === -1 ? 'N/A' : `${peakHour}:00`, totalItemsSold, aov };
+    return { totalOrders, totalRevenue, mostSoldItem, peakHour, totalItemsSold, aov };
   };
 
   const analytics = getAnalytics();
 
-  const exportOrders = async () => {
-    try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
-      const startDate = new Date(exportFilters.startDate).toISOString();
-      const endDate = new Date(exportFilters.endDate).toISOString();
-      const params = new URLSearchParams({
-        startDate,
-        endDate,
-        statuses: exportFilters.statuses.join(','),
-      });
-      const response = await fetch(`${apiUrl}/api/admin/orders/history?${params}`);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const filteredData = await response.json();
-
-      let csv = '';
-      if (exportType === 'order') {
-        csv = [
-          'Order No.,Date,Time,Table,Status,Total,Payment Method,Items',
-          ...filteredData.map((order) => {
-            const total = order.items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0);
-            const date = formatToISTDateOnly(order.created_at);
-            const time = formatToIST(order.created_at).split(' ')[1];
-            const items = order.items.map((i) => `${i.name} x${i.quantity || 1}`).join(', ');
-            return `"${order.order_number || order.id}","${date}","${time}","${order.tables?.number || order.table_id}","${order.status}","${total.toFixed(2)}","${order.payment_type || ''}","${items}"`;
-          }),
-        ].join('\n');
-      } else {
-        csv = [
-          'Order No.,Date,Item,Quantity,Price,Total,Status,Table,Payment Method',
-          ...filteredData.flatMap((order) => {
-            const date = formatToISTDateOnly(order.created_at);
-            return order.items.map((item) => {
-              const totalPrice = (item.price * (item.quantity || 1)).toFixed(2);
-              return `"${order.order_number || order.id}","${date}","${item.name}","${item.quantity || 1}","${item.price.toFixed(2)}","${totalPrice}","${order.status}","${order.tables?.number || order.table_id}","${order.payment_type || ''}"`;
-            });
-          }),
-        ].join('\n');
-      }
-
-      const bom = '\uFEFF';
-      const blob = new Blob([bom + csv], { type: 'text/csv;charset=utf-8' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `orders-${exportType}-${formatToISTDateOnly(new Date())}.csv`;
-      a.click();
-      window.URL.revokeObjectURL(url);
-    } catch (err) {
-      setError(`Failed to export orders: ${err.message}`);
+  const exportOrders = () => {
+    const startDate = new Date(exportFilters.startDate.setHours(0, 0, 0, 0)).toISOString();
+    const endDate = new Date(exportFilters.endDate.setHours(23, 59, 59, 999)).toISOString();
+    const filteredOrders = historyOrders.filter(order => {
+      const orderDate = new Date(order.created_at).toISOString();
+      const matchesDate = orderDate >= startDate && orderDate <= endDate;
+      const matchesStatus = exportFilters.statuses.length ? exportFilters.statuses.includes(order.status) : true;
+      return matchesDate && matchesStatus;
+    });
+    let csv;
+    if (exportType === 'order') {
+      csv = [
+        'Order ID,Date,Time,Table Number,Status,Total Amount,Items,Payment Method',
+        ...filteredOrders.map(order => {
+          const total = order.items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0);
+          const date = formatToISTDateOnly(new Date(order.created_at));
+          const time = formatToIST(new Date(order.created_at)).split(' ')[1];
+          const items = order.items.map(item => `${item.name} x${item.quantity || 1}`).join(', ');
+          return `${order.order_number || order.id},${date},${time},${order.tables?.number || order.table_id},${order.status},${total.toFixed(2)},${items},${order.payment_type || 'N/A'}`;
+        }),
+      ];
+    } else {
+      csv = [
+        'Order ID,Date,Item Name,Quantity,Unit Price,Total Price,Status,Table Number,Payment Method',
+        ...filteredOrders.flatMap(order => {
+          const date = formatToISTDateOnly(new Date(order.created_at));
+          return order.items.map(item => {
+            const totalPrice = (item.price * (item.quantity || 1)).toFixed(2);
+            return `${order.order_number || order.id},${date},${item.name},${item.quantity || 1},${item.price.toFixed(2)},${totalPrice},${order.status},${order.tables?.number || order.table_id},${order.payment_type || 'N/A'}`;
+          });
+        }),
+      ];
     }
+    const bom = '\uFEFF';
+    const blob = new Blob([bom + csv.join('\n')], { type: 'text/csv;charset=utf-8' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `orders_${exportType}_${formatToISTDateOnly(new Date())}.csv`;
+    a.click();
+    window.URL.revokeObjectURL(url);
   };
 
   const StatusFilter = ({ statuses, onChange, label }) => (
     <div>
       <label className="block text-sm font-medium mb-1">{label}</label>
-      <div className="border rounded p-2">
-        {['pending', 'paid'].map((status) => (
-          <label key={status} className="flex items-center mb-1">
+      <div className="border rounded-lg p-3 bg-gray-50">
+        {['pending', 'paid'].map(status => (
+          <label key={status} className="flex items-center mb-2">
             <input
               type="checkbox"
               value={status}
@@ -647,12 +714,15 @@ export default function Admin() {
               onChange={(e) => {
                 const newStatuses = e.target.checked
                   ? [...statuses, status]
-                  : statuses.filter((s) => s !== status);
+                  : statuses.filter(s => s !== status);
                 onChange(newStatuses);
               }}
-              className="mr-2 checkbox"
+              className="mr-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              aria-label={`Filter by ${status} status`}
             />
-            <span className={status === 'paid' ? 'text-green-500' : 'text-yellow-500'}>{status}</span>
+            <span className={`capitalize ${status === 'paid' ? 'text-green-600' : 'text-yellow-600'}`}>
+              {status}
+            </span>
           </label>
         ))}
       </div>
@@ -662,24 +732,30 @@ export default function Admin() {
   if (!isLoggedIn) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100">
-        <div className="bg-white p-6 rounded shadow-md w-full max-w-sm">
-          <h2 className="text-xl font-bold mb-4">Admin Login</h2>
-          {error && <p className="text-red-500 mb-2">{error}</p>}
+        <div className="bg-white p-8 rounded-lg shadow-lg max-w-md w-full">
+          <h1 className="text-2xl font-bold mb-6 text-center">Admin Login</h1>
+          {error && <p className="text-red-500 mb-4 text-center" role="alert">{error}</p>}
           <input
             type="email"
             placeholder="Email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="input w-full mb-2"
+            className="border p-3 w-full mb-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            aria-label="Email"
           />
           <input
             type="password"
             placeholder="Password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="input w-full mb-2"
+            className="border p-3 w-full mb-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            aria-label="Password"
           />
-          <button className="btn btn-primary w-full" onClick={handleLogin}>
+          <button
+            className="bg-blue-600 text-white px-4 py-3 rounded-lg w-full hover:bg-blue-700 transition"
+            onClick={handleLogin}
+            aria-label="Login"
+          >
             Login
           </button>
         </div>
@@ -688,91 +764,126 @@ export default function Admin() {
   }
 
   return (
-    <div className="min-h-screen flex">
+    <div className="min-h-screen bg-gray-100 flex">
       <div className="w-64 bg-white shadow-lg p-4 fixed h-full">
-        <h2 className="text-xl font-semibold mb-4">Gsaheb Cafe Admin</h2>
+        <h1 className="text-2xl font-bold mb-8 text-gray-800">Gsaheb Cafe Admin</h1>
         <nav>
-          {['Pending Orders', 'Order History', 'Menu Management', 'Data Analytics'].map((tab) => (
+          {['Pending Orders', 'Order History', 'Menu Management', 'Data Analytics'].map(tab => (
             <button
               key={tab}
-              className={`w-full text-left p-2 mb-1 rounded ${activeTab === tab ? 'bg-blue-500 text-white' : 'hover:bg-gray-200'}`}
+              className={`w-full text-left py-3 px-4 mb-2 rounded-lg flex items-center gap-2 ${
+                activeTab === tab ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-200'
+              }`}
               onClick={() => setActiveTab(tab)}
+              aria-current={activeTab === tab ? 'page' : undefined}
             >
+              {tab === 'Pending Orders' && <ClipboardDocumentListIcon className="h-5 w-5" />}
+              {tab === 'Order History' && <ClockIcon className="h-5 w-5" />}
+              {tab === 'Menu Management' && <PlusIcon className="h-5 w-5" />}
+              {tab === 'Data Analytics' && <ChartBarIcon className="h-5 w-5" />}
               {tab}
             </button>
           ))}
         </nav>
         <button
-          className="btn btn-danger w-full mt-4"
+          className="w-full mt-4 bg-red-600 text-white py-3 rounded-lg hover:bg-red-700 transition"
           onClick={() => supabase.auth.signOut().then(() => setIsLoggedIn(false))}
+          aria-label="Logout"
         >
           Logout
         </button>
       </div>
 
-      <div className="ml-64 p-4 flex-1">
-        {error && <div className="alert alert-error mb-4">{error}</div>}
+      <div className="ml-64 flex-1 p-8">
+        {error && (
+          <div className="bg-red-100 text-red-700 p-4 rounded-lg mb-6" role="alert">
+            {error}
+          </div>
+        )}
 
         {activeTab === 'Pending Orders' && (
           <div>
-            <h3 className="text-lg font-semibold mb-4">Pending Orders</h3>
+            <h2 className="text-2xl font-bold text-gray-800 mb-6">Pending Orders</h2>
             {orders.length === 0 ? (
-              <p>No pending orders.</p>
+              <p className="text-gray-500 text-center">No pending orders</p>
             ) : (
-              orders.map((order) => (
-                <div key={order.id} className="card shadow mb-2">
-                  <div className="card-body">
-                    <h4 className="card-title">Order #{order.order_number || order.id}</h4>
-                    <p>{formatToIST(order.created_at)}</p>
-                    <p>Table #{order.tables?.number || order.table_id}</p>
-                    <table className="table w-full">
-                      <thead>
-                        <tr>
-                          <th>Item</th>
-                          <th className="text-right">Qty</th>
-                          <th className="text-right">Price</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {order.items.map((item, idx) => (
-                          <tr key={idx}>
-                            <td>{item.name}</td>
-                            <td className="text-right">{item.quantity || 1}</td>
-                            <td className="text-right">${((item.quantity || 1) * item.price).toFixed(2)}</td>
+              <div className="grid gap-6">
+                {orders.map(order => {
+                  const total = order.items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0);
+                  const formattedDate = formatToIST(new Date(order.created_at));
+                  return (
+                    <div key={order.id} className="bg-white p-6 rounded-lg shadow-md">
+                      <div className="flex justify-between items-center mb-4">
+                        <div>
+                          <h3 className="text-lg font-semibold">Order #{order.order_number || order.id}</h3>
+                          <p className="text-sm text-gray-500">{formattedDate}</p>
+                          <p className="text-sm text-gray-500">Table {order.tables?.number || order.table_id}</p>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                            onClick={() => startEditing(order)}
+                            aria-label={`Edit order ${order.order_number || order.id}`}
+                          >
+                            <PencilSquareIcon className="h-5 w-5" />
+                            Edit
+                          </button>
+                          <button
+                            className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 flex items-center gap-2"
+                            onClick={() => initiateMarkAsPaid(order.id)}
+                            aria-label={`Mark order ${order.order_number || order.id} as paid`}
+                          >
+                            Mark as Paid
+                          </button>
+                          <button
+                            className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 flex items-center gap-2"
+                            onClick={() => printBill(order)}
+                            aria-label={`Print bill for order ${order.order_number || order.id}`}
+                          >
+                            <PrinterIcon className="h-5 w-5" />
+                            Print Bill
+                          </button>
+                        </div>
+                      </div>
+                      <table className="w-full">
+                        <thead>
+                          <tr className="border-b">
+                            <th className="text-left py-2">Item</th>
+                            <th className="text-right py-2">Qty</th>
+                            <th className="text-right py-2">Price</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    <div className="flex justify-between font-bold">
-                      <span>Total</span>
-                      <span>${order.items.reduce((sum, i) => sum + ((i.quantity || 1) * i.price), 0).toFixed(2)}</span>
+                        </thead>
+                        <tbody>
+                          {order.items.map((item, index) => (
+                            <tr key={index}>
+                              <td className="py-2">{item.name}</td>
+                              <td className="text-right py-2">{item.quantity || 1}</td>
+                              <td className="text-right py-2">₹{(item.price * (item.quantity || 1)).toFixed(2)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      <div className="flex justify-between mt-4 font-semibold">
+                        <span>Total</span>
+                        <span>₹{total.toFixed(2)}</span>
+                      </div>
                     </div>
-                    <div className="flex gap-2 mt-2">
-                      <button className="btn btn-primary" onClick={() => startEditing(order)}>
-                        Edit
-                      </button>
-                      <button className="btn btn-success" onClick={() => initiateMarkAsPaid(order.id)}>
-                        Mark as Paid
-                      </button>
-                      <button className="btn btn-info" onClick={() => printBill(order)}>
-                        Print Bill
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))
+                  );
+                })}
+              </div>
             )}
           </div>
         )}
 
         {showPaymentModal && (
-          <div className="modal modal-open">
-            <div className="modal-box">
-              <h3 className="font-semibold text-lg">Select Payment Method</h3>
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+            <div className="bg-white p-6 rounded-lg max-w-md w-full">
+              <h3 className="text-xl font-bold mb-4">Select Payment Method</h3>
               <select
-                className="select w-full mt-2"
+                className="border p-2 w-full rounded-lg mb-4"
                 value={paymentType}
                 onChange={(e) => setPaymentType(e.target.value)}
+                aria-label="Select payment method"
               >
                 <option value="">Select Payment Method</option>
                 <option value="UPI">UPI</option>
@@ -780,18 +891,23 @@ export default function Admin() {
                 <option value="Bank">Bank</option>
                 <option value="Card">Card</option>
               </select>
-              <div className="modal-action">
+              <div className="flex justify-end gap-2">
                 <button
-                  className="btn"
+                  className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600"
                   onClick={() => {
                     setShowPaymentModal(false);
                     setSelectedOrderId(null);
                     setPaymentType('');
                   }}
+                  aria-label="Cancel payment selection"
                 >
                   Cancel
                 </button>
-                <button className="btn btn-success" onClick={markAsPaid}>
+                <button
+                  className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700"
+                  onClick={markAsPaid}
+                  aria-label="Confirm payment"
+                >
                   Confirm
                 </button>
               </div>
@@ -800,59 +916,83 @@ export default function Admin() {
         )}
 
         {editingOrder && (
-          <div className="modal modal-open">
-            <div className="modal-box">
-              <h3 className="font-semibold text-lg">Edit Order #{editingOrder.order_number || editingOrder.id}</h3>
-              <table className="table w-full">
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+            <div className="bg-white p-6 rounded-lg max-w-2xl w-full">
+              <h3 className="text-xl font-bold mb-4">Edit Order #{editingOrder.order_number || editingOrder.id}</h3>
+              <table className="w-full mb-4">
                 <thead>
-                  <tr>
-                    <th>Item</th>
-                    <th className="text-right">Qty</th>
-                    <th className="text-right">Price</th>
-                    <th>Action</th>
+                  <tr className="border-b">
+                    <th className="text-left py-2">Item</th>
+                    <th className="text-right py-2">Qty</th>
+                    <th className="text-right py-2">Price</th>
+                    <th className="text-center py-2">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {editedItems.map((item, idx) => (
-                    <tr key={idx}>
-                      <td>{item.name}</td>
-                      <td className="text-right">
-                        <button className="btn btn-sm" onClick={() => updateQuantity(idx, -1)}>
-                          -
-                        </button>
-                        {item.quantity || 1}
-                        <button className="btn btn-sm" onClick={() => updateQuantity(idx, 1)}>
-                          +
-                        </button>
+                  {editedItems.map((item, index) => (
+                    <tr key={index}>
+                      <td className="py-2">{item.name}</td>
+                      <td className="text-right py-2">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            className="bg-gray-200 px-2 py-1 rounded"
+                            onClick={() => updateQuantity(index, -1)}
+                            aria-label={`Decrease quantity for ${item.name}`}
+                          >
+                            -
+                          </button>
+                          <span>{item.quantity || 1}</span>
+                          <button
+                            className="bg-gray-200 px-2 py-1 rounded"
+                            onClick={() => updateQuantity(index, 1)}
+                            aria-label={`Increase quantity for ${item.name}`}
+                          >
+                            +
+                          </button>
+                        </div>
                       </td>
-                      <td className="text-right">${((item.quantity || 1) * item.price).toFixed(2)}</td>
-                      <td>
-                        <button className="btn btn-error btn-sm" onClick={() => removeItem(idx)}>
-                          Remove
+                      <td className="text-right py-2">₹{(item.price * (item.quantity || 1)).toFixed(2)}</td>
+                      <td className="text-center py-2">
+                        <button
+                          className="text-red-600 hover:text-red-800"
+                          onClick={() => removeItem(index)}
+                          aria-label={`Remove ${item.name}`}
+                        >
+                          <TrashIcon className="h-5 w-5" />
                         </button>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-              <select
-                className="select w-full mt-2"
-                onChange={(e) => addItem(e.target.value)}
-                value=""
-              >
-                <option value="">Add Item</option>
-                {menuItems.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name} (${item.price})
-                  </option>
-                ))}
-              </select>
-              <div className="modal-action">
-                <button className="btn" onClick={cancelEdit}>
+              <div className="mb-4">
+                <label className="block text-sm font-medium mb-1">Add Item</label>
+                <select
+                  className="border p-2 w-full rounded-lg"
+                  onChange={(e) => addItem(Number(e.target.value))}
+                  value=""
+                  aria-label="Add item to order"
+                >
+                  <option value="">Select item</option>
+                  {menuItems.filter(item => item.is_available).map(item => (
+                    <option key={item.id} value={item.id}>{item.name} (₹{item.price.toFixed(2)})</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex justify-end gap-2">
+                <button
+                  className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600"
+                  onClick={cancelEdit}
+                  aria-label="Cancel edit"
+                >
                   Cancel
                 </button>
-                <button className="btn btn-primary" onClick={saveOrder}>
-                  Save
+                <button
+                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+                  onClick={saveOrder}
+                  aria-label="Save order changes"
+                >
+                  Update Order
                 </button>
               </div>
             </div>
@@ -861,34 +1001,35 @@ export default function Admin() {
 
         {activeTab === 'Order History' && (
           <div>
-            <h3 className="text-lg font-semibold mb-4">Order History</h3>
-            <div className="card shadow-md mb-4 p-4">
-              <div className="grid grid-cols-2 gap-2">
+            <h2 className="text-2xl font-bold text-gray-800 mb-6">Order History</h2>
+            <div className="bg-white p-6 rounded-lg shadow-md mb-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block mb-1">Date Range</label>
+                  <label className="block text-sm font-medium mb-1">Date Range</label>
                   <select
-                    className="select w-full"
+                    className="border p-2 w-full rounded-lg"
                     value={historyFilters.dateRange}
-                    onChange={(e) => setHistoryFilters((prev) => ({ ...prev, dateRange: e.target.value, page: 1 }))}
+                    onChange={(e) => setHistoryFilters({ ...historyFilters, dateRange: e.target.value, page: 1 })}
+                    aria-label="Date range filter"
                   >
                     <option value="today">Today</option>
                     <option value="yesterday">Yesterday</option>
                     <option value="last7days">Last 7 Days</option>
-                    <option value="custom">Custom</option>
+                    <option value="custom">Custom Range</option>
                   </select>
                   {historyFilters.dateRange === 'custom' && (
-                    <div className="flex gap-2 mt-2">
+                    <div className="mt-2 flex gap-2">
                       <DatePicker
                         selected={historyFilters.customStart}
-                        onChange={(date) => setHistoryFilters((prev) => ({ ...prev, customStart: date, page: 1 }))}
-                        className="input w-full"
-                        dateFormat="yyyy-MM-dd"
+                        onChange={date => setHistoryFilters({ ...historyFilters, customStart: date, page: 1 })}
+                        className="border p-2 rounded-lg w-full"
+                        aria-label="Custom start date"
                       />
                       <DatePicker
                         selected={historyFilters.customEnd}
-                        onChange={(date) => setHistoryFilters((prev) => ({ ...prev, customEnd: date, page: 1 }))}
-                        className="input w-full"
-                        dateFormat="yyyy-MM-dd"
+                        onChange={date => setHistoryFilters({ ...historyFilters, customEnd: date, page: 1 })}
+                        className="border p-2 rounded-lg w-full"
+                        aria-label="Custom end date"
                       />
                     </div>
                   )}
@@ -896,63 +1037,76 @@ export default function Admin() {
                 <StatusFilter
                   label="Status"
                   statuses={historyFilters.statuses}
-                  onChange={(newStatuses) => setHistoryFilters((prev) => ({ ...prev, statuses: newStatuses, page: 1 }))}
+                  onChange={(newStatuses) => setHistoryFilters({ ...historyFilters, statuses: newStatuses, page: 1 })}
                 />
               </div>
             </div>
             {historyOrders.length === 0 ? (
-              <p>No orders found</p>
+              <p className="text-gray-500 text-center">No orders found</p>
             ) : (
               <>
-                <table className="table w-full">
+                <table className="w-full bg-white rounded-lg shadow-md">
                   <thead>
-                    <tr>
-                      <th>Order No.</th>
-                      <th>Date</th>
-                      <th>Table</th>
-                      <th className="text-right">Total</th>
-                      <th>Status</th>
-                      <th>Payment</th>
-                      <th>Actions</th>
+                    <tr className="border-b">
+                      <th className="text-left py-3 px-4">Order ID</th>
+                      <th className="text-left py-3 px-4">Date</th>
+                      <th className="text-left py-3 px-4">Table</th>
+                      <th className="text-right py-3 px-4">Total</th>
+                      <th className="text-left py-3 px-4">Status</th>
+                      <th className="text-left py-3 px-4">Payment Method</th>
+                      <th className="text-center py-3 px-4">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {historyOrders
-                      .slice((historyFilters.page - 1) * historyFilters.perPage, historyFilters.page * historyFilters.perPage)
-                      .map((order) => (
-                        <tr key={order.id}>
-                          <td>{order.order_number || order.id}</td>
-                          <td>{formatToIST(order.created_at)}</td>
-                          <td>{order.tables?.number || order.table_id}</td>
-                          <td className="text-right">
-                            ${order.items.reduce((sum, i) => sum + ((i.quantity || 1) * i.price), 0).toFixed(2)}
-                          </td>
-                          <td>{order.status}</td>
-                          <td>{order.payment_type || 'N/A'}</td>
-                          <td>
-                            <button className="btn btn-sm" onClick={() => setViewingOrder(order)}>
+                    {historyOrders.slice(
+                      (historyFilters.page - 1) * historyFilters.perPage,
+                      historyFilters.page * historyFilters.perPage
+                    ).map(order => {
+                      const total = order.items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0);
+                      return (
+                        <tr key={order.id} className="border-b">
+                          <td className="py-3 px-4">{order.order_number || order.id}</td>
+                          <td className="py-3 px-4">{formatToIST(new Date(order.created_at))}</td>
+                          <td className="py-3 px-4">{order.tables?.number || order.table_id}</td>
+                          <td className="text-right py-3 px-4">₹{total.toFixed(2)}</td>
+                          <td className="py-3 px-4">{order.status}</td>
+                          <td className="py-3 px-4">{order.payment_type || 'N/A'}</td>
+                          <td className="text-center py-3 px-4 flex gap-2 justify-center">
+                            <button
+                              className="text-blue-600 hover:text-blue-800"
+                              onClick={() => setViewingOrder(order)}
+                              aria-label={`View invoice for order ${order.order_number || order.id}`}
+                            >
                               View
+                            </button>
+                            <button
+                              className="text-gray-600 hover:text-gray-800"
+                              onClick={() => printBill(order)}
+                              aria-label={`Print invoice for order ${order.order_number || order.id}`}
+                            >
+                              <PrinterIcon className="h-5 w-5" />
                             </button>
                           </td>
                         </tr>
-                      ))}
+                      );
+                    })}
                   </tbody>
                 </table>
-                <div className="flex justify-between mt-2">
+                <div className="flex justify-between items-center mt-4">
                   <button
-                    className="btn"
+                    className="bg-gray-500 text-white px-4 py-2 rounded-lg disabled:opacity-50"
+                    onClick={() => setHistoryFilters({ ...historyFilters, page: historyFilters.page - 1 })}
                     disabled={historyFilters.page === 1}
-                    onClick={() => setHistoryFilters((prev) => ({ ...prev, page: prev.page - 1 }))}
+                    aria-label="Previous page"
                   >
                     Previous
                   </button>
-                  <span>
-                    Page {historyFilters.page} of {Math.ceil(historyOrders.length / historyFilters.perPage)}
-                  </span>
+                  <span>Page {historyFilters.page} of {Math.ceil(historyOrders.length / historyFilters.perPage)}</span>
                   <button
-                    className="btn"
+                    className="bg-gray-500 text-white px-4 py-2 rounded-lg disabled:opacity-50"
+                    onClick={() => setHistoryFilters({ ...historyFilters, page: historyFilters.page + 1 })}
                     disabled={historyFilters.page * historyFilters.perPage >= historyOrders.length}
-                    onClick={() => setHistoryFilters((prev) => ({ ...prev, page: prev.page + 1 }))}
+                    aria-label="Next page"
                   >
                     Next
                   </button>
@@ -963,36 +1117,49 @@ export default function Admin() {
         )}
 
         {viewingOrder && (
-          <div className="modal modal-open">
-            <div className="modal-box">
-              <h3 className="font-semibold text-lg">Order #{viewingOrder.order_number || viewingOrder.id}</h3>
-              <p>{formatToIST(viewingOrder.created_at)}</p>
-              <p>Table #{viewingOrder.tables?.number || viewingOrder.table_id}</p>
-              <table className="table w-full">
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+            <div className="bg-white p-6 rounded-lg max-w-2xl w-full">
+              <h3 className="text-xl font-bold mb-4">Invoice #{viewingOrder.order_number || viewingOrder.id}</h3>
+              <p className="text-sm text-gray-500 mb-2">{formatToIST(new Date(viewingOrder.created_at))}</p>
+              <p className="text-sm text-gray-500 mb-2">Table {viewingOrder.tables?.number || viewingOrder.table_id}</p>
+              <p className="text-sm text-gray-500 mb-4">Payment Method: {viewingOrder.payment_type || 'N/A'}</p>
+              <table className="w-full mb-4">
                 <thead>
-                  <tr>
-                    <th>Item</th>
-                    <th className="text-right">Qty</th>
-                    <th className="text-right">Price</th>
+                  <tr className="border-b">
+                    <th className="text-left py-2">Item</th>
+                    <th className="text-right py-2">Qty</th>
+                    <th className="text-right py-2">Price</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {viewingOrder.items.map((item, idx) => (
-                    <tr key={idx}>
-                      <td>{item.name}</td>
-                      <td className="text-right">{item.quantity || 1}</td>
-                      <td className="text-right">${((item.quantity || 1) * item.price).toFixed(2)}</td>
+                  {viewingOrder.items.map((item, index) => (
+                    <tr key={index}>
+                      <td className="py-2">{item.name}</td>
+                      <td className="text-right py-2">{item.quantity || 1}</td>
+                      <td className="text-right py-2">₹{(item.price * (item.quantity || 1)).toFixed(2)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-              <div className="flex justify-between font-bold">
+              <div className="flex justify-between font-semibold mb-4">
                 <span>Total</span>
-                <span>${viewingOrder.items.reduce((sum, i) => sum + ((i.quantity || 1) * i.price), 0).toFixed(2)}</span>
+                <span>₹{viewingOrder.items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0).toFixed(2)}</span>
               </div>
-              <div className="modal-action">
-                <button className="btn" onClick={() => setViewingOrder(null)}>
+              <div className="flex justify-end gap-2">
+                <button
+                  className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600"
+                  onClick={() => setViewingOrder(null)}
+                  aria-label="Close invoice"
+                >
                   Close
+                </button>
+                <button
+                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                  onClick={() => printBill(viewingOrder)}
+                  aria-label={`Print invoice for ${viewingOrder.order_number || viewingOrder.id}`}
+                >
+                  <PrinterIcon className="h-5 w-5" />
+                  Print
                 </button>
               </div>
             </div>
@@ -1001,71 +1168,129 @@ export default function Admin() {
 
         {activeTab === 'Menu Management' && (
           <div>
-            <h3 className="text-lg font-semibold mb-4">Menu Management</h3>
-            <div className="card shadow-md mb-4 p-4">
-              <h4 className="text-md font-semibold mb-2">Add Item</h4>
-              <div className="grid grid-cols-2 gap-2">
-                <input
-                  type="text"
-                  placeholder="Name"
-                  value={newItem.name}
-                  onChange={(e) => setNewItem((prev) => ({ ...prev, name: e.target.value }))}
-                  className="input"
-                />
-                <input
-                  type="text"
-                  placeholder="Category"
-                  value={newItem.category}
-                  onChange={(e) => setNewItem((prev) => ({ ...prev, category: e.target.value }))}
-                  className="input"
-                />
-                <input
-                  type="number"
-                  placeholder="Price"
-                  value={newItem.price}
-                  onChange={(e) => setNewItem((prev) => ({ ...prev, price: e.target.value }))}
-                  className="input"
-                />
-                <label className="flex items-center">
+            <h2 className="text-2xl font-bold text-gray-800 mb-6">Menu Management</h2>
+            <div className="bg-white p-6 rounded-lg shadow-md mb-6">
+              <h3 className="text-lg font-semibold mb-4">Add New Item</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Name</label>
                   <input
-                    type="checkbox"
-                    checked={newItem.is_available}
-                    onChange={(e) => setNewItem((prev) => ({ ...prev, is_available: e.target.checked }))}
-                    className="checkbox mr-2"
+                    type="text"
+                    value={newItem.name}
+                    onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
+                    className="border p-2 rounded-lg w-full"
+                    aria-label="Item name"
                   />
-                  Available
-                </label>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Category</label>
+                  <input
+                    type="text"
+                    value={newItem.category}
+                    onChange={(e) => setNewItem({ ...newItem, category: e.target.value })}
+                    className="border p-2 rounded-lg w-full"
+                    aria-label="Item category"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Price</label>
+                  <input
+                    type="number"
+                    value={newItem.price}
+                    onChange={(e) => setNewItem({ ...newItem, price: e.target.value })}
+                    className="border p-2 rounded-lg w-full"
+                    aria-label="Item price"
+                  />
+                </div>
+                <div className="flex items-center">
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={newItem.is_available}
+                      onChange={(e) => setNewItem({ ...newItem, is_available: e.target.checked })}
+                      className="mr-2"
+                      aria-label="Item availability"
+                    />
+                    Available
+                  </label>
+                </div>
               </div>
-              <button className="btn btn-primary mt-2" onClick={addMenuItem}>
-                Add
+              <button
+                className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+                onClick={addMenuItem}
+                aria-label="Add menu item"
+              >
+                Add Item
               </button>
             </div>
-            <table className="table w-full">
+            <h3 className="text-lg font-semibold mb-4">Menu Items</h3>
+            <table className="w-full bg-white rounded-lg shadow-md">
               <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Category</th>
-                  <th>Price</th>
-                  <th>Available?</th>
-                  <th>Actions</th>
+                <tr className="border-b">
+                  <th className="text-left py-3 px-4">Name</th>
+                  <th className="text-left py-3 px-4">Category</th>
+                  <th className="text-right py-3 px-4">Price</th>
+                  <th className="text-center py-3 px-4">Available</th>
+                  <th className="text-center py-3 px-4">Image</th>
+                  <th className="text-center py-3 px-4">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {menuItems.map((item) => (
-                  <tr key={item.id}>
-                    <td>{item.name}</td>
-                    <td>{item.category || '-'}</td>
-                    <td>${item.price.toFixed(2)}</td>
-                    <td>{item.is_available ? 'Yes' : 'No'}</td>
-                    <td>
+                {menuItems.map(item => (
+                  <tr key={item.id} className="border-b">
+                    <td className="py-3 px-4">{item.name}</td>
+                    <td className="py-3 px-4">{item.category || '-'}</td>
+                    <td className="text-right py-3 px-4">₹{item.price.toFixed(2)}</td>
+                    <td className="text-center py-3 px-4">
+                      {item.is_available ? (
+                        <CheckCircleIcon className="h-5 w-5 text-green-500 mx-auto" />
+                      ) : (
+                        <XCircleIcon className="h-5 w-5 text-red-500 mx-auto" />
+                      )}
+                    </td>
+                    <td className="text-center py-3 px-4">
+                      {item.image_url ? (
+                        <img
+                          src={item.image_url}
+                          alt={item.name}
+                          className="w-16 h-16 object-cover rounded mx-auto"
+                        />
+                      ) : (
+                        <span className="text-gray-500">-</span>
+                      )}
+                    </td>
+                    <td className="text-center py-3 px-4 flex gap-2 justify-center">
+                      <label className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 cursor-pointer">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => uploadImage(item.id, e.target.files[0])}
+                          aria-label={`Upload image for ${item.name}`}
+                        />
+                        Upload
+                      </label>
                       <button
-                        className="btn btn-sm btn-warning"
-                        onClick={() => toggleAvailability(item.id, item.is_available)}
+                        className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700"
+                        onClick={() => deleteImage(item.id, item.image_url)}
+                        disabled={!item.image_url}
+                        aria-label={`Delete image for ${item.name}`}
                       >
-                        Toggle
-                      </button>
-                      <button className="btn btn-sm btn-error" onClick={() => removeMenuItem(item.id)}>
                         Delete
+                      </button>
+                      <button
+                        className="text-blue-600 hover:text-blue-800"
+                        onClick={() => toggleAvailability(item.id, item.is_available)}
+                        aria-label={`Toggle availability for ${item.name}`}
+                      >
+                        {item.is_available ? 'Disable' : 'Enable'}
+                      </button>
+                      <button
+                        className="text-red-600 hover:text-red-800"
+                        onClick={() => removeMenuItem(item.id)}
+                        aria-label={`Remove ${item.name}`}
+                      >
+                        <TrashIcon className="h-5 w-5" />
                       </button>
                     </td>
                   </tr>
@@ -1077,88 +1302,95 @@ export default function Admin() {
 
         {activeTab === 'Data Analytics' && (
           <div>
-            <h3 className="text-lg font-semibold mb-4">Data Analytics</h3>
-            {isLoadingPaidOrders ? (
-              <p>Loading analytics...</p>
-            ) : (
-              <>
-                <div className="grid grid-cols-2 gap-2 mb-4">
-                  <div className="card bg-blue-100 p-4">
-                    <h4 className="font-semibold">Total Orders</h4>
-                    <p>{analytics.totalOrders}</p>
-                  </div>
-                  <div className="card bg-green-100 p-4">
-                    <h4 className="font-semibold">Total Revenue</h4>
-                    <p>${analytics.totalRevenue.toFixed(2)}</p>
-                  </div>
-                  <div className="card bg-purple-100 p-4">
-                    <h4 className="font-semibold">Most Sold Item</h4>
-                    <p>{analytics.mostSoldItem[0]} ({analytics.mostSoldItem[1]} sold)</p>
-                  </div>
-                  <div className="card bg-gray-100 p-4">
-                    <h4 className="font-semibold">Peak Hour</h4>
-                    <p>{analytics.peakHour}</p>
-                  </div>
-                  <div className="card bg-yellow-100 p-4">
-                    <h4 className="font-semibold">Avg. Order Value</h4>
-                    <p>${analytics.aov.toFixed(2)}</p>
-                  </div>
-                  <div className="card bg-orange-100 p-4">
-                    <h4 className="font-semibold">Total Items Sold</h4>
-                    <p>{analytics.totalItemsSold}</p>
-                  </div>
+            <h2 className="text-2xl font-bold text-gray-800 mb-6">Analytics</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+              <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Total Orders</h3>
+                <p className="text-2xl font-bold">{analytics.totalOrders}</p>
+              </div>
+              <div className="bg-gradient-to-r from-green-500 to-green-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Total Revenue</h3>
+                <p className="text-2xl font-bold">₹{analytics.totalRevenue.toFixed(2)}</p>
+              </div>
+              <div className="bg-gradient-to-r from-purple-500 to-purple-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Most Sold Item</h3>
+                <p className="text-2xl font-bold">{analytics.mostSoldItem[0]}</p>
+                <p className="text-sm">{analytics.mostSoldItem[1]} units</p>
+              </div>
+              <div className="bg-gradient-to-r from-orange-500 to-orange-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Peak Hour</h3>
+                <p className="text-2xl font-bold">
+                  {analytics.peakHour === -1 ? 'N/A' : `${analytics.peakHour}:00`}
+                </p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+              <div className="bg-gradient-to-r from-teal-500 to-teal-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Weekly Revenue</h3>
+                <p className="text-2xl font-bold">₹{weeklyRevenue.toFixed(2)}</p>
+              </div>
+              <div className="bg-gradient-to-r from-indigo-500 to-indigo-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Monthly Revenue</h3>
+                <p className="text-2xl font-bold">₹{monthlyRevenue.toFixed(2)}</p>
+              </div>
+              <div className="bg-gradient-to-r from-pink-500 to-pink-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Average Order Value</h3>
+                <p className="text-2xl font-bold">₹{analytics.aov.toFixed(2)}</p>
+              </div>
+              <div className="bg-gradient-to-r from-yellow-500 to-yellow-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Total Items Sold</h3>
+                <p className="text-2xl font-bold">{analytics.totalItemsSold}</p>
+              </div>
+            </div>
+            <div className="bg-white p-6 rounded-lg shadow-md">
+              <h3 className="text-lg font-semibold mb-4">Export Orders</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Export Type</label>
+                  <select
+                    className="border p-2 rounded-lg w-full"
+                    value={exportType}
+                    onChange={(e) => setExportType(e.target.value)}
+                    aria-label="Select export type"
+                  >
+                    <option value="order">Order Summary</option>
+                    <option value="items">Itemized</option>
+                  </select>
                 </div>
-                <div className="grid grid-cols-2 gap-2 mb-4">
-                  <div className="card bg-teal-100 p-4">
-                    <h4 className="font-semibold">Weekly Revenue</h4>
-                    <p>${weeklyRevenue.toFixed(2)}</p>
-                  </div>
-                  <div className="card bg-indigo-100 p-4">
-                    <h4 className="font-semibold">Monthly Revenue</h4>
-                    <p>${monthlyRevenue.toFixed(2)}</p>
-                  </div>
-                </div>
-                <div className="card shadow-md p-4">
-                  <h4 className="text-md font-semibold mb-2">Export Orders</h4>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block mb-1">Export Type</label>
-                      <select
-                        className="select w-full"
-                        value={exportType}
-                        onChange={(e) => setExportType(e.target.value)}
-                      >
-                        <option value="order">Order</option>
-                        <option value="items">Items</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block mb-1">Date Range</label>
-                      <DatePicker
-                        selected={exportFilters.startDate}
-                        onChange={(date) => setExportFilters((prev) => ({ ...prev, startDate: date }))}
-                        className="input w-full"
-                        dateFormat="yyyy-MM-dd"
-                      />
-                      <DatePicker
-                        selected={exportFilters.endDate}
-                        onChange={(date) => setExportFilters((prev) => ({ ...prev, endDate: date }))}
-                        className="input w-full mt-1"
-                        dateFormat="yyyy-MM-dd"
-                      />
-                    </div>
-                  </div>
-                  <StatusFilter
-                    label="Status"
-                    statuses={exportFilters.statuses}
-                    onChange={(newStatuses) => setExportFilters((prev) => ({ ...prev, statuses: newStatuses }))}
+                <div>
+                  <label className="block text-sm font-medium mb-1">Start Date</label>
+                  <DatePicker
+                    selected={exportFilters.startDate}
+                    onChange={(date) => setExportFilters({ ...exportFilters, startDate: date })}
+                    className="border p-2 rounded-lg w-full"
+                    aria-label="Start date picker for export"
                   />
-                  <button className="btn btn-primary mt-2" onClick={exportOrders}>
-                    Export
-                  </button>
                 </div>
-              </>
-            )}
+                <div>
+                  <label className="block text-sm font-medium mb-1">End Date</label>
+                  <DatePicker
+                    selected={exportFilters.endDate}
+                    onChange={(date) => setExportFilters({ ...exportFilters, endDate: date })}
+                    className="border p-2 rounded-lg w-full"
+                    aria-label="End date picker for export"
+                  />
+                </div>
+              </div>
+              <div className="mt-4">
+                <StatusFilter
+                  label="Status"
+                  statuses={exportFilters.statuses}
+                  onChange={(newStatuses) => setExportFilters({ ...exportFilters, statuses: newStatuses })}
+                />
+              </div>
+              <button
+                className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+                onClick={exportOrders}
+                aria-label="Export orders"
+              >
+                Export
+              </button>
+            </div>
           </div>
         )}
       </div>
