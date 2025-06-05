@@ -953,7 +953,7 @@ export default function Admin() {
 
         {showPaymentModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-            <div className="bg-white p-6 rounded-lg max-w-md">
+              <div className="bg-white p-6 rounded-lg max-w-2xl w-full">
               <h3 className="text-xl font-semibold mb-4">Select Payment Method</h3>
               <select
                 value={paymentType}
