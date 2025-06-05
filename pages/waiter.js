@@ -3,7 +3,7 @@ import useSWR from 'swr';
 import BottomCart from '../components/BottomCart';
 import { CakeIcon } from '@heroicons/react/24/outline';
 import { format, add } from 'date-fns';
-import { supabase } from '../../lib/supabase';
+import { supabase } from '../lib/supabase';
 
 const fetcher = (url) => fetch(url).then((res) => {
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
