@@ -3,8 +3,9 @@ import useSWR from 'swr';
 import BottomCart from '../components/BottomCart';
 import { CakeIcon } from '@heroicons/react/24/outline';
 import { format, add } from 'date-fns';
+import { supabase } from '../lib/supabase';
 
-const fetcher = (url) => fetch(url).then(res => res.json());
+const fetcher = (url) => fetch(url).then((res) => res.json());
 
 export default function Waiter() {
   const [activeTab, setActiveTab] = useState('take-order');
@@ -20,7 +21,7 @@ export default function Waiter() {
   const [filterTableNumber, setFilterTableNumber] = useState('');
   const [editingOrder, setEditingOrder] = useState(null);
 
-  // Function to convert UTC to IST
+  // Convert UTC to IST
   const formatToIST = (date) => {
     const utcDate = new Date(date);
     const istDate = add(utcDate, { hours: 5, minutes: 30 });
@@ -29,10 +30,16 @@ export default function Waiter() {
 
   // Fetch menu items
   const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
-  const { data: menu, error: menuError, isLoading: isMenuLoading } = useSWR(`${apiUrl}/api/menu`, fetcher);
+  const { data: menu, error: menuError, isLoading: isMenuLoading } = useSWR(
+    `${apiUrl}/api/menu`,
+    fetcher
+  );
 
   // Fetch pending orders
-  const { data: ordersData, error: ordersError, isLoading: isOrdersLoading, mutate: mutateOrders } = useSWR(`${apiUrl}/api/orders?status=pending`, fetcher);
+  const { data: ordersData, error: ordersError, isLoading: isOrdersLoading, mutate: mutateOrders } = useSWR(
+    `${apiUrl}/api/orders?status=pending`,
+    fetcher
+  );
 
   // Update pending orders
   useEffect(() => {
@@ -54,28 +61,65 @@ export default function Waiter() {
     }
   }, [menuError]);
 
+  // Real-time order updates
+  useEffect(() => {
+    const subscription = supabase
+      .channel('waiter-orders')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'orders' },
+        async (payload) => {
+          if (payload.new.status === 'pending') {
+            try {
+              const response = await fetch(`${apiUrl}/api/orders/${payload.new.id}`);
+              if (!response.ok) throw new Error(`HTTP ${response.status}`);
+              const order = await response.json();
+              setPendingOrders((prev) => [order, ...prev]);
+            } catch (err) {
+              console.error('Error fetching new order:', err);
+              setError('Failed to sync new order.');
+            }
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'orders' },
+        (payload) => {
+          if (payload.new.status === 'pending') {
+            setPendingOrders((prev) =>
+              prev.map((order) => (order.id === payload.new.id ? payload.new : order))
+            );
+          } else {
+            setPendingOrders((prev) => prev.filter((order) => order.id !== payload.new.id));
+          }
+        }
+      )
+      .subscribe();
+
+    return () => supabase.removeChannel(subscription);
+  }, [apiUrl]);
+
   // Unique categories
-  const categories = ['All', ...new Set(menu?.map(item => item.category).filter(Boolean))];
+  const categories = ['All', ...new Set(menu?.map((item) => item.category).filter(Boolean))];
 
   // Filtered menu (by category and search)
   const filteredMenu = menu
     ? menu
-        .filter(item => selectedCategory === 'All' || item.category === selectedCategory)
-        .filter(item =>
-          item.name.toLowerCase().includes(searchQuery.toLowerCase())
-        )
+        .filter((item) => selectedCategory === 'All' || item.category === selectedCategory)
+        .filter((item) => item.name.toLowerCase().includes(searchQuery.toLowerCase()))
     : [];
 
   // Add to cart
   const addToCart = (item) => {
-    setAddedItems(prev => ({ ...prev, [item.id]: true }));
+    setAddedItems((prev) => ({ ...prev, [item.id]: true }));
     setTimeout(() => {
-      setAddedItems(prev => ({ ...prev, [item.id]: false }));
+      setAddedItems((prev) => ({ ...prev, [item.id]: false }));
     }, 1000);
-    setCart(prevCart => {
-      const existingItem = prevCart.find(cartItem => cartItem.item_id === item.id);
+    setCart((prevCart) => {
+      const existingItem = prevCart.find((cartItem) => cartItem.item_id === item.id);
       if (existingItem) {
-        return prevCart.map(cartItem =>
+        return prevCart.map((cartItem) =>
           cartItem.item_id === item.id
             ? { ...cartItem, quantity: (cartItem.quantity || 1) + 1 }
             : cartItem
@@ -125,12 +169,7 @@ export default function Waiter() {
       setOrderNote('');
       setIsCartOpen(false);
       setError('Order placed successfully!');
-      // Revalidate pending orders
       mutateOrders();
-      // Fallback: Reload page after 3 seconds if mutate doesn't update the UI
-      setTimeout(() => {
-        window.location.reload();
-      }, 3000);
     } catch (err) {
       setError(`Failed to place order: ${err.message}`);
     }
@@ -144,37 +183,41 @@ export default function Waiter() {
       setError('Cannot edit order: Invalid order data.');
       return;
     }
-
-    setEditingOrder({
+    const orderData = {
       orderId: order.id,
-      tableNumber: order.table_id,
-      items: order.items,
+      tableNumber: order.tables?.number || order.table_id,
+      items: order.items.map((item) => ({
+        ...item,
+        item_id: item.item_id || item.id,
+        quantity: item.quantity || 1,
+        note: item.note || '',
+      })),
       notes: order.notes || '',
-    });
-    setCart(order.items);
-    setTableNumber(order.table_id.toString());
-    setOrderNote(order.notes || '');
+    };
+    setEditingOrder(orderData);
+    setCart(orderData.items);
+    setTableNumber(orderData.tableNumber.toString());
+    setOrderNote(orderData.notes);
     setIsCartOpen(true);
-    setActiveTab('pending-orders');
     console.log('State after setting:', {
-      editingOrder: {
-        orderId: order.id,
-        tableNumber: order.table_id,
-        items: order.items,
-        notes: order.notes || '',
-      },
-      cart: order.items,
-      tableNumber: order.table_id.toString(),
-      orderNote: order.notes || '',
+      editingOrder: orderData,
+      cart: orderData.items,
+      tableNumber: orderData.tableNumber.toString(),
+      orderNote: orderData.notes,
       isCartOpen: true,
-      activeTab: 'pending-orders',
     });
   };
 
   // Save edited order
   const saveEditedOrder = async () => {
-    if (!editingOrder) return;
-    if (cart.length === 0) return setError('Cart is empty.');
+    if (!editingOrder) {
+      setError('No order selected for editing.');
+      return;
+    }
+    if (cart.length === 0) {
+      setError('Cart is empty.');
+      return;
+    }
     try {
       setError(null);
       const response = await fetch(`${apiUrl}/api/orders/${editingOrder.orderId}`, {
@@ -196,12 +239,7 @@ export default function Waiter() {
       setIsCartOpen(false);
       setEditingOrder(null);
       setError('Order updated successfully!');
-      // Revalidate pending orders
       mutateOrders();
-      // Fallback: Reload page after 3 seconds if mutate doesn't update the UI
-      setTimeout(() => {
-        window.location.reload();
-      }, 3000);
     } catch (err) {
       setError(`Failed to update order: ${err.message}`);
     }
@@ -214,7 +252,7 @@ export default function Waiter() {
 
   // Filtered pending orders
   const filteredOrders = filterTableNumber
-    ? pendingOrders.filter(order => order.table_id.toString() === filterTableNumber)
+    ? pendingOrders.filter((order) => order.table_id.toString() === filterTableNumber)
     : pendingOrders;
 
   if (isMenuLoading && isOrdersLoading) {
@@ -308,7 +346,7 @@ export default function Waiter() {
           {/* Category Filters */}
           <div className="mb-6 overflow-x-auto whitespace-nowrap pb-2" role="tablist" aria-label="Menu categories">
             <div className="flex gap-2">
-              {categories.map(category => (
+              {categories.map((category) => (
                 <button
                   key={category}
                   className={`px-4 py-2 rounded-lg text-sm font-medium ${
@@ -331,7 +369,7 @@ export default function Waiter() {
             {filteredMenu.length === 0 ? (
               <p className="col-span-full text-center text-gray-500">No items found.</p>
             ) : (
-              filteredMenu.map(item => (
+              filteredMenu.map((item) => (
                 <div
                   key={item.id}
                   className="bg-white p-4 rounded-lg shadow-md hover:shadow-lg transition-shadow"
@@ -406,7 +444,7 @@ export default function Waiter() {
                 {filteredOrders.length === 0 ? (
                   <p className="text-center text-gray-500">No pending orders.</p>
                 ) : (
-                  filteredOrders.map(order => (
+                  filteredOrders.map((order) => (
                     <div key={order.id} className="bg-white p-6 rounded-lg shadow">
                       <div className="mb-4">
                         <p className="text-lg font-semibold">Order #{order.order_number || order.id}</p>
