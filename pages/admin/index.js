@@ -52,6 +52,7 @@ export default function Admin() {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState(null);
   const [paymentType, setPaymentType] = useState('');
+  const [isLoadingPaidOrders, setIsLoadingPaidOrders] = useState(false);
 
   useEffect(() => {
     localStorage.setItem('activeTab', activeTab);
@@ -134,9 +135,16 @@ export default function Admin() {
     return () => supabase.removeChannel(subscription);
   }, [isLoggedIn, activeTab]);
 
-  useEffect(() => {
-    async function fetchPaidOrders() {
+  const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+  async function fetchPaidOrders() {
+    setIsLoadingPaidOrders(true);
+    const maxRetries = 3;
+    let attempts = 0;
+
+    while (attempts < maxRetries) {
       try {
+        console.log(`Fetching paid orders, attempt ${attempts + 1}`);
         const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
         const todayStart = new Date();
         todayStart.setHours(0, 0, 0, 0);
@@ -150,11 +158,24 @@ export default function Admin() {
         const response = await fetch(`${apiUrl}/api/admin/orders/history?${params}`);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
-        setPaidOrders(data);
+        console.log(`Paid orders fetched successfully: ${data.length} orders`);
+        setPaidOrders(prev => data.length > 0 ? data : prev);
+        setIsLoadingPaidOrders(false);
+        return;
       } catch (err) {
-        setError(`Failed to fetch paid orders: ${err.message}`);
+        attempts++;
+        console.error(`Failed to fetch paid orders (attempt ${attempts}): ${err.message}`);
+        if (attempts === maxRetries) {
+          setError(`Failed to fetch paid orders after ${maxRetries} attempts: ${err.message}`);
+          setIsLoadingPaidOrders(false);
+          return;
+        }
+        await delay(1000); // 1-second delay between retries
       }
     }
+  }
+
+  useEffect(() => {
     if (isLoggedIn && activeTab === 'Data Analytics') fetchPaidOrders();
   }, [isLoggedIn, activeTab]);
 
@@ -628,13 +649,12 @@ export default function Admin() {
 
   const getAnalytics = () => {
     const today = formatToISTDateForComparison(new Date());
-    const todaysOrders = paidOrders.filter(order =>
+    const todaysOrders = (paidOrders || []).filter(order =>
       formatToISTDateForComparison(new Date(order.created_at)) === today
     );
-    const totalOrders = todaysOrders.length;
+    const totalOrders = todaysOrders.length || 0;
     const totalRevenue = todaysOrders.reduce((sum, order) =>
-      sum + order.items.reduce((s, item) => s + (item.price * (item.quantity || 1)), 0), 0
-    );
+      sum + order.items.reduce((s, item) => s + (item.price * (item.quantity || 1)), 0), 0) || 0;
     const itemCounts = {};
     todaysOrders.forEach(order => {
       order.items.forEach(item => {
@@ -642,7 +662,7 @@ export default function Admin() {
       });
     });
     const mostSoldItem = Object.entries(itemCounts)
-      .sort((a, b) => b[1] - a[1])[0] || ['None', 0];
+      .sort((a, b) => b[1] - a[1])[0] || ['N/A', 0];
     const ordersByHour = Array(24).fill(0);
     todaysOrders.forEach(order => {
       const hour = parseInt(formatToISTHourOnly(new Date(order.created_at)));
@@ -650,10 +670,9 @@ export default function Admin() {
     });
     const peakHour = ordersByHour.indexOf(Math.max(...ordersByHour));
     const totalItemsSold = todaysOrders.reduce((sum, order) =>
-      sum + order.items.reduce((s, item) => s + (item.quantity || 1), 0), 0
-    );
+      sum + order.items.reduce((s, item) => s + (item.quantity || 1), 0), 0) || 0;
     const aov = totalOrders > 0 ? totalRevenue / totalOrders : 0;
-    return { totalOrders, totalRevenue, mostSoldItem, peakHour, totalItemsSold, aov };
+    return { totalOrders, totalRevenue, mostSoldItem, peakHour: peakHour === -1 ? 'N/A' : peakHour, totalItemsSold, aov };
   };
 
   const analytics = getAnalytics();
@@ -1303,94 +1322,100 @@ export default function Admin() {
         {activeTab === 'Data Analytics' && (
           <div>
             <h2 className="text-2xl font-bold text-gray-800 mb-6">Analytics</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-              <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
-                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Total Orders</h3>
-                <p className="text-2xl font-bold">{analytics.totalOrders}</p>
-              </div>
-              <div className="bg-gradient-to-r from-green-500 to-green-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
-                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Total Revenue</h3>
-                <p className="text-2xl font-bold">₹{analytics.totalRevenue.toFixed(2)}</p>
-              </div>
-              <div className="bg-gradient-to-r from-purple-500 to-purple-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
-                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Most Sold Item</h3>
-                <p className="text-2xl font-bold">{analytics.mostSoldItem[0]}</p>
-                <p className="text-sm">{analytics.mostSoldItem[1]} units</p>
-              </div>
-              <div className="bg-gradient-to-r from-orange-500 to-orange-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
-                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Peak Hour</h3>
-                <p className="text-2xl font-bold">
-                  {analytics.peakHour === -1 ? 'N/A' : `${analytics.peakHour}:00`}
-                </p>
-              </div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-              <div className="bg-gradient-to-r from-teal-500 to-teal-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
-                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Weekly Revenue</h3>
-                <p className="text-2xl font-bold">₹{weeklyRevenue.toFixed(2)}</p>
-              </div>
-              <div className="bg-gradient-to-r from-indigo-500 to-indigo-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
-                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Monthly Revenue</h3>
-                <p className="text-2xl font-bold">₹{monthlyRevenue.toFixed(2)}</p>
-              </div>
-              <div className="bg-gradient-to-r from-pink-500 to-pink-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
-                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Average Order Value</h3>
-                <p className="text-2xl font-bold">₹{analytics.aov.toFixed(2)}</p>
-              </div>
-              <div className="bg-gradient-to-r from-yellow-500 to-yellow-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
-                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Total Items Sold</h3>
-                <p className="text-2xl font-bold">{analytics.totalItemsSold}</p>
-              </div>
-            </div>
-            <div className="bg-white p-6 rounded-lg shadow-md">
-              <h3 className="text-lg font-semibold mb-4">Export Orders</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Export Type</label>
-                  <select
-                    className="border p-2 rounded-lg w-full"
-                    value={exportType}
-                    onChange={(e) => setExportType(e.target.value)}
-                    aria-label="Select export type"
+            {isLoadingPaidOrders ? (
+              <p className="text-gray-500 text-center">Loading analytics...</p>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+                  <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+                    <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Total Orders</h3>
+                    <p className="text-2xl font-bold">{analytics.totalOrders}</p>
+                  </div>
+                  <div className="bg-gradient-to-r from-green-500 to-green-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+                    <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Total Revenue</h3>
+                    <p className="text-2xl font-bold">₹{analytics.totalRevenue.toFixed(2)}</p>
+                  </div>
+                  <div className="bg-gradient-to-r from-purple-500 to-purple-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+                    <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Most Sold Item</h3>
+                    <p className="text-2xl font-bold">{analytics.mostSoldItem[0]}</p>
+                    <p className="text-sm">{analytics.mostSoldItem[1]} units</p>
+                  </div>
+                  <div className="bg-gradient-to-r from-orange-500 to-orange-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+                    <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Peak Hour</h3>
+                    <p className="text-2xl font-bold">
+                      {analytics.peakHour === 'N/A' ? 'N/A' : `${analytics.peakHour}:00`}
+                    </p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+                  <div className="bg-gradient-to-r from-teal-500 to-teal-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+                    <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Weekly Revenue</h3>
+                    <p className="text-2xl font-bold">₹{weeklyRevenue.toFixed(2)}</p>
+                  </div>
+                  <div className="bg-gradient-to-r from-indigo-500 to-indigo-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+                    <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Monthly Revenue</h3>
+                    <p className="text-2xl font-bold">₹{monthlyRevenue.toFixed(2)}</p>
+                  </div>
+                  <div className="bg-gradient-to-r from-pink-500 to-pink-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+                    <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Average Order Value</h3>
+                    <p className="text-2xl font-bold">₹{analytics.aov.toFixed(2)}</p>
+                  </div>
+                  <div className="bg-gradient-to-r from-yellow-500 to-yellow-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+                    <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Total Items Sold</h3>
+                    <p className="text-2xl font-bold">{analytics.totalItemsSold}</p>
+                  </div>
+                </div>
+                <div className="bg-white p-6 rounded-lg shadow-md">
+                  <h3 className="text-lg font-semibold mb-4">Export Orders</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Export Type</label>
+                      <select
+                        className="border p-2 rounded-lg w-full"
+                        value={exportType}
+                        onChange={(e) => setExportType(e.target.value)}
+                        aria-label="Select export type"
+                      >
+                        <option value="order">Order Summary</option>
+                        <option value="items">Itemized</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Start Date</label>
+                      <DatePicker
+                        selected={exportFilters.startDate}
+                        onChange={(date) => setExportFilters({ ...exportFilters, startDate: date })}
+                        className="border p-2 rounded-lg w-full"
+                        aria-label="Start date picker for export"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">End Date</label>
+                      <DatePicker
+                        selected={exportFilters.endDate}
+                        onChange={(date) => setExportFilters({ ...exportFilters, endDate: date })}
+                        className="border p-2 rounded-lg w-full"
+                        aria-label="End date picker for export"
+                      />
+                    </div>
+                  </div>
+                  <div className="mt-4">
+                    <StatusFilter
+                      label="Status"
+                      statuses={exportFilters.statuses}
+                      onChange={(newStatuses) => setExportFilters({ ...exportFilters, statuses: newStatuses })}
+                    />
+                  </div>
+                  <button
+                    className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+                    onClick={exportOrders}
+                    aria-label="Export orders"
                   >
-                    <option value="order">Order Summary</option>
-                    <option value="items">Itemized</option>
-                  </select>
+                    Export
+                  </button>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Start Date</label>
-                  <DatePicker
-                    selected={exportFilters.startDate}
-                    onChange={(date) => setExportFilters({ ...exportFilters, startDate: date })}
-                    className="border p-2 rounded-lg w-full"
-                    aria-label="Start date picker for export"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">End Date</label>
-                  <DatePicker
-                    selected={exportFilters.endDate}
-                    onChange={(date) => setExportFilters({ ...exportFilters, endDate: date })}
-                    className="border p-2 rounded-lg w-full"
-                    aria-label="End date picker for export"
-                  />
-                </div>
-              </div>
-              <div className="mt-4">
-                <StatusFilter
-                  label="Status"
-                  statuses={exportFilters.statuses}
-                  onChange={(newStatuses) => setExportFilters({ ...exportFilters, statuses: newStatuses })}
-                />
-              </div>
-              <button
-                className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
-                onClick={exportOrders}
-                aria-label="Export orders"
-              >
-                Export
-              </button>
-            </div>
+              </>
+            )}
           </div>
         )}
       </div>
