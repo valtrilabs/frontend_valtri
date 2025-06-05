@@ -123,7 +123,9 @@ export default function Admin() {
           }
         }
       })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, (payload) => {
+      .on('postgres_changes', { event:
+
+ 'UPDATE', schema: 'public', table: 'orders' }, (payload) => {
         const updatedOrder = payload.new;
         if (updatedOrder.status !== 'pending') {
           setOrders(prevOrders => prevOrders.filter(order => order.id !== updatedOrder.id));
@@ -390,11 +392,78 @@ export default function Admin() {
           is_available: newItem.is_available,
         }])
         .select();
-      if (error) throw error;
+      if (errorI) throw error;
       setMenuItems([...menuItems, data[0]]);
       setNewItem({ name: '', category: '', price: '', is_available: true });
     } catch (err) {
-      setError(`Failed to add item: ${err.message}`);
+      setError(`Failed to add item:  ${err.message}`);
+    }
+  };
+
+  const uploadMenuImage = async (itemId, file) => {
+    if (!file) {
+      setError('Please select an image to upload');
+      return;
+    }
+    try {
+      // Generate a unique file name
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${itemId}_${Date.now()}.${fileExt}`;
+      const filePath = `menu-images/${fileName}`;
+
+      // Upload to Supabase Storage
+      const { error: uploadError } = await supabase.storage
+        .from('menu-images')
+        .upload(filePath, file);
+      if (uploadError) throw uploadError;
+
+      // Get public URL
+      const { data: urlData } = supabase.storage
+        .from('menu-images')
+        .getPublicUrl(filePath);
+      const publicUrl = urlData.publicUrl;
+
+      // Update menu_items table with image_url
+      const { error: updateError } = await supabase
+        .from('menu_items')
+        .update({ image_url: publicUrl })
+        .eq('id', itemId);
+      if (updateError) throw updateError;
+
+      // Update local state
+      setMenuItems(menuItems.map(item =>
+        item.id === itemId ? { ...item, image_url: publicUrl } : item
+      ));
+    } catch (err) {
+      setError(`Failed to upload image: ${err.message}`);
+    }
+  };
+
+  const deleteMenuImage = async (itemId, imageUrl) => {
+    try {
+      // Extract file path from public URL
+      const filePath = imageUrl.split('/storage/v1/object/public/menu-images/')[1];
+      if (!filePath) throw new Error('Invalid image URL');
+
+      // Delete from Supabase Storage
+      const { error: deleteError } = await supabase.storage
+        .from('menu-images')
+        .remove([filePath]);
+      if (deleteError) throw deleteError;
+
+      // Update menu_items table to remove image_url
+      const { error: updateError } = await supabase
+        .from('menu_items')
+        .update({ image_url: null })
+        .eq('id', itemId);
+      if (updateError) throw updateError;
+
+      // Update local state
+      setMenuItems(menuItems.map(item =>
+        item.id === itemId ? { ...item, image_url: null } : item
+      ));
+    } catch (err) {
+      setError(`Failed to delete image: ${err.message}`);
     }
   };
 
@@ -944,6 +1013,137 @@ export default function Admin() {
           </div>
         )}
 
+        {activeTab === 'Menu Management' && (
+          <div>
+            <h2 className="text-2xl font-bold text-gray-800 mb-6">Menu Management</h2>
+            <div className="bg-white p-6 rounded-lg shadow-md mb-6">
+              <h3 className="text-lg font-semibold mb-4">Add New Item</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Name</label>
+                  <input
+                    type="text"
+                    value={newItem.name}
+                    onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
+                    className="border p-2 rounded-lg w-full"
+                    aria-label="Item name"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Category</label>
+                  <input
+                    type="text"
+                    value={newItem.category}
+                    onChange={(e) => setNewItem({ ...newItem, category: e.target.value })}
+                    className="border p-2 rounded-lg w-full"
+                    aria-label="Item category"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Price</label>
+                  <input
+                    type="number"
+                    value={newItem.price}
+                    onChange={(e) => setNewItem({ ...newItem, price: e.target.value })}
+                    className="border p-2 rounded-lg w-full"
+                    aria-label="Item price"
+                  />
+                </div>
+                <div className="flex items-center">
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={newItem.is_available}
+                      onChange={(e) => setNewItem({ ...newItem, is_available: e.target.checked })}
+                      className="mr-2"
+                      aria-label="Item availability"
+                    />
+                    Available
+                  </label>
+                </div>
+              </div>
+              <button
+                className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+                onClick={addMenuItem}
+                aria-label="Add menu item"
+              >
+                Add Item
+              </button>
+            </div>
+            <h3 className="text-lg font-semibold mb-4">Menu Items</h3>
+            <table className="w-full bg-white rounded-lg shadow-md">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left py-3 px-4">Name</th>
+                  <th className="text-left py-3 px-4">Category</th>
+                  <th className="text-right py-3 px-4">Price</th>
+                  <th className="text-center py-3 px-4">Available</th>
+                  <th className="text-center py-3 px-4">Image</th>
+                  <th className="text-center py-3 px-4">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {menuItems.map(item => (
+                  <tr key={item.id} className="border-b">
+                    <td className="py-3 px-4">{item.name}</td>
+                    <td className="py-3 px-4">{item.category || '-'}</td>
+                    <td className="text-right py-3 px-4">₹{item.price.toFixed(2)}</td>
+                    <td className="text-center py-3 px-4">
+                      {item.is_available ? (
+                        <CheckCircleIcon className="h-5 w-5 text-green-500 mx-auto" />
+                      ) : (
+                        <XCircleIcon className="h-5 w-5 text-red-500 mx-auto" />
+                      )}
+                    </td>
+                    <td className="text-center py-3 px-4">
+                      {item.image_url ? (
+                        <div className="flex items-center gap-2 justify-center">
+                          <img
+                            src={item.image_url}
+                            alt={item.name}
+                            className="w-12 h-12 object-cover rounded"
+                          />
+                          <button
+                            className="text-red-600 hover:text-red-800"
+                            onClick={() => deleteMenuImage(item.id, item.image_url)}
+                            aria-label={`Delete image for ${item.name}`}
+                          >
+                            <TrashIcon className="h-5 w-5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => uploadMenuImage(item.id, e.target.files[0])}
+                          className="text-sm text-gray-500"
+                          aria-label={`Upload image for ${item.name}`}
+                        />
+                      )}
+                    </td>
+                    <td className="text-center py-3 px-4 flex gap-2 justify-center">
+                      <button
+                        className="text-blue-600 hover:text-blue-800"
+                        onClick={() => toggleAvailability(item.id, item.is_available)}
+                        aria-label={`Toggle availability for ${item.name}`}
+                      >
+                        {item.is_available ? 'Disable' : 'Enable'}
+                      </button>
+                      <button
+                        className="text-red-600 hover:text-red-800"
+                        onClick={() => removeMenuItem(item.id)}
+                        aria-label={`Remove ${item.name}`}
+                      >
+                        <TrashIcon className="h-5 w-5" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
         {activeTab === 'Order History' && (
           <div>
             <h2 className="text-2xl font-bold text-gray-800 mb-6">Order History</h2>
@@ -1111,110 +1311,6 @@ export default function Admin() {
           </div>
         )}
 
-        {activeTab === 'Menu Management' && (
-          <div>
-            <h2 className="text-2xl font-bold text-gray-800 mb-6">Menu Management</h2>
-            <div className="bg-white p-6 rounded-lg shadow-md mb-6">
-              <h3 className="text-lg font-semibold mb-4">Add New Item</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Name</label>
-                  <input
-                    type="text"
-                    value={newItem.name}
-                    onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
-                    className="border p-2 rounded-lg w-full"
-                    aria-label="Item name"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Category</label>
-                  <input
-                    type="text"
-                    value={newItem.category}
-                    onChange={(e) => setNewItem({ ...newItem, category: e.target.value })}
-                    className="border p-2 rounded-lg w-full"
-                    aria-label="Item category"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Price</label>
-                  <input
-                    type="number"
-                    value={newItem.price}
-                    onChange={(e) => setNewItem({ ...newItem, price: e.target.value })}
-                    className="border p-2 rounded-lg w-full"
-                    aria-label="Item price"
-                  />
-                </div>
-                <div className="flex items-center">
-                  <label className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={newItem.is_available}
-                      onChange={(e) => setNewItem({ ...newItem, is_available: e.target.checked })}
-                      className="mr-2"
-                      aria-label="Item availability"
-                    />
-                    Available
-                  </label>
-                </div>
-              </div>
-              <button
-                className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
-                onClick={addMenuItem}
-                aria-label="Add menu item"
-              >
-                Add Item
-              </button>
-            </div>
-            <h3 className="text-lg font-semibold mb-4">Menu Items</h3>
-            <table className="w-full bg-white rounded-lg shadow-md">
-              <thead>
-                <tr className="border-b">
-                  <th className="text-left py-3 px-4">Name</th>
-                  <th className="text-left py-3 px-4">Category</th>
-                  <th className="text-right py-3 px-4">Price</th>
-                  <th className="text-center py-3 px-4">Available</th>
-                  <th className="text-center py-3 px-4">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {menuItems.map(item => (
-                  <tr key={item.id} className="border-b">
-                    <td className="py-3 px-4">{item.name}</td>
-                    <td className="py-3 px-4">{item.category || '-'}</td>
-                    <td className="text-right py-3 px-4">₹{item.price.toFixed(2)}</td>
-                    <td className="text-center py-3 px-4">
-                      {item.is_available ? (
-                        <CheckCircleIcon className="h-5 w-5 text-green-500 mx-auto" />
-                      ) : (
-                        <XCircleIcon className="h-5 w-5 text-red-500 mx-auto" />
-                      )}
-                    </td>
-                    <td className="text-center py-3 px-4 flex gap-2 justify-center">
-                      <button
-                        className="text-blue-600 hover:text-blue-800"
-                        onClick={() => toggleAvailability(item.id, item.is_available)}
-                        aria-label={`Toggle availability for ${item.name}`}
-                      >
-                        {item.is_available ? 'Disable' : 'Enable'}
-                      </button>
-                      <button
-                        className="text-red-600 hover:text-red-800"
-                        onClick={() => removeMenuItem(item.id)}
-                        aria-label={`Remove ${item.name}`}
-                      >
-                        <TrashIcon className="h-5 w-5" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
         {activeTab === 'Data Analytics' && (
           <div>
             <h2 className="text-2xl font-bold text-gray-800 mb-6">Analytics</h2>
@@ -1223,7 +1319,7 @@ export default function Admin() {
                 <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Total Orders</h3>
                 <p className="text-2xl font-bold">{analytics.totalOrders}</p>
               </div>
-              <div className="bg-gradient-to-r from-green-500 to-green-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+              <div className="-your text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
                 <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Total Revenue</h3>
                 <p className="text-2xl font-bold">₹{analytics.totalRevenue.toFixed(2)}</p>
               </div>
@@ -1246,7 +1342,7 @@ export default function Admin() {
               </div>
               <div className="bg-gradient-to-r from-indigo-500 to-indigo-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
                 <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Monthly Revenue</h3>
-                <p className="text-2xl font-bold">₹{monthlyRevenue.toFixed(2)}</p>
+                <p className="text-2xl font-bold">₹{weeklyRevenue.toFixed(2)}</p>
               </div>
               <div className="bg-gradient-to-r from-pink-500 to-pink-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
                 <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Average Order Value</h3>
