@@ -1372,7 +1372,7 @@ export default function Admin() {
                           className="hidden"
                           onChange={(e) => uploadImage(item.id, e.target.files[0])}
                         />
-                        Upload
+                        Upload Image
                       </label>
                       <button
                         className="bg-red-600 text-white px-2 py-1 rounded-md hover:bg-red-700 transition"

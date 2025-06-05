@@ -11,11 +11,6 @@ export default function BottomCart({ cart, setCart, onPlaceOrder, onClose, isOpe
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedItem, setSelectedItem] = useState(null);
 
-  // Debug log
-  useEffect(() => {
-    console.log('BottomCart props:', { isEditing, menuLength: menu?.length, isOpen, cartLength: cart?.length });
-  }, [isEditing, menu, isOpen, cart]);
-
   // Sync visibility with isOpen prop
   useEffect(() => {
     if (isOpen) {
@@ -23,15 +18,15 @@ export default function BottomCart({ cart, setCart, onPlaceOrder, onClose, isOpe
       setIsMinimized(false);
     } else {
       setIsMinimized(false);
-      setTimeout(() => setIsVisible(false), 300);
+      setTimeout(() => setIsVisible(false), 300); // Match transition duration
     }
   }, [isOpen]);
 
   // Sync itemNotes when cart changes
   useEffect(() => {
-    setItemNotes((prev) => {
+    setItemNotes(prev => {
       const newNotes = { ...prev };
-      cart.forEach((item) => {
+      cart.forEach(item => {
         if (!(item.item_id in newNotes)) {
           newNotes[item.item_id] = item.note || '';
         }
@@ -42,9 +37,9 @@ export default function BottomCart({ cart, setCart, onPlaceOrder, onClose, isOpe
 
   // Update quantity
   const updateQuantity = (itemId, delta) => {
-    setCart((prevCart) => {
+    setCart(prevCart => {
       const newCart = [...prevCart];
-      const itemIndex = newCart.findIndex((item) => item.item_id === itemId);
+      const itemIndex = newCart.findIndex(item => item.item_id === itemId);
       if (itemIndex === -1) return prevCart;
       const newQuantity = (newCart[itemIndex].quantity || 1) + delta;
       if (newQuantity <= 0) {
@@ -57,8 +52,8 @@ export default function BottomCart({ cart, setCart, onPlaceOrder, onClose, isOpe
 
   // Delete item
   const deleteItem = (itemId) => {
-    setCart((prevCart) => prevCart.filter((item) => item.item_id !== itemId));
-    setItemNotes((prev) => {
+    setCart(prevCart => prevCart.filter(item => item.item_id !== itemId));
+    setItemNotes(prev => {
       const newNotes = { ...prev };
       delete newNotes[itemId];
       return newNotes;
@@ -67,9 +62,9 @@ export default function BottomCart({ cart, setCart, onPlaceOrder, onClose, isOpe
 
   // Update item note
   const updateItemNote = (itemId, note) => {
-    setItemNotes((prev) => ({ ...prev, [itemId]: note }));
-    setCart((prevCart) =>
-      prevCart.map((item) =>
+    setItemNotes(prev => ({ ...prev, [itemId]: note }));
+    setCart(prevCart =>
+      prevCart.map(item =>
         item.item_id === itemId ? { ...item, note } : item
       )
     );
@@ -77,19 +72,18 @@ export default function BottomCart({ cart, setCart, onPlaceOrder, onClose, isOpe
 
   // Filter menu items for dropdown
   const filteredItems = menu
-    ? menu.filter((item) =>
+    ? menu.filter(item =>
         item.name.toLowerCase().includes(searchTerm.toLowerCase())
       )
     : [];
 
   // Add selected item to cart
   const addItemToCart = () => {
-    console.log('addItemToCart called:', { selectedItem, searchTerm });
     if (!selectedItem) return;
-    setCart((prevCart) => {
-      const existingItem = prevCart.find((cartItem) => cartItem.item_id === selectedItem.id);
+    setCart(prevCart => {
+      const existingItem = prevCart.find(cartItem => cartItem.item_id === selectedItem.id);
       if (existingItem) {
-        return prevCart.map((cartItem) =>
+        return prevCart.map(cartItem =>
           cartItem.item_id === selectedItem.id
             ? { ...cartItem, quantity: (cartItem.quantity || 1) + 1 }
             : cartItem
@@ -230,7 +224,6 @@ export default function BottomCart({ cart, setCart, onPlaceOrder, onClose, isOpe
                   id="item-search"
                   value={searchTerm}
                   onChange={(e) => {
-                    console.log('Search input changed:', e.target.value);
                     setSearchTerm(e.target.value);
                     setSelectedItem(null);
                   }}
@@ -239,12 +232,11 @@ export default function BottomCart({ cart, setCart, onPlaceOrder, onClose, isOpe
                 />
                 {searchTerm && filteredItems.length > 0 && (
                   <ul className="absolute z-10 w-full bg-white border border-gray-300 rounded-md mb-1 max-h-40 overflow-y-auto shadow-lg bottom-full">
-                    {filteredItems.map((item) => (
+                    {filteredItems.map(item => (
                       <li
                         key={item.id}
                         className="px-4 py-2 hover:bg-gray-100 cursor-pointer"
                         onClick={() => {
-                          console.log('Item clicked:', item);
                           setSelectedItem(item);
                           setSearchTerm(item.name);
                         }}
@@ -254,18 +246,13 @@ export default function BottomCart({ cart, setCart, onPlaceOrder, onClose, isOpe
                     ))}
                   </ul>
                 )}
-                {searchTerm && filteredItems.length === 0 && (
-                  <p className="absolute z-10 w-full bg-white border border-gray-300 rounded-md mb-1 p-2 text-gray-500">
-                    No matching items found
-                  </p>
-                )}
               </div>
               <button
                 onClick={addItemToCart}
                 disabled={!selectedItem}
                 className={`mt-2 w-full py-2 rounded-lg text-white font-medium ${
                   selectedItem
-                    ? 'bg-blue-600 hover:bg-blue-700'
+                    ? 'bg-blue-500 hover:bg-blue-600'
                     : 'bg-gray-300 cursor-not-allowed'
                 }`}
               >
@@ -292,7 +279,7 @@ export default function BottomCart({ cart, setCart, onPlaceOrder, onClose, isOpe
               Close
             </button>
             <button
-              className="flex-2 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700"
+              className="flex-1 bg-blue-500 text-white py-2 rounded-lg hover:bg-blue-600"
               onClick={onPlaceOrder}
               aria-label={isEditing ? 'Save Order Changes' : 'Place Order'}
             >
@@ -303,4 +290,4 @@ export default function BottomCart({ cart, setCart, onPlaceOrder, onClose, isOpe
       )}
     </div>
   );
-};
+}
