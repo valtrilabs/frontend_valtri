@@ -869,7 +869,6 @@ export default function Admin() {
                       </div>
                     </div>
                   );
- RTX
                 })}
               </div>
             )}
@@ -994,6 +993,173 @@ export default function Admin() {
                   aria-label="Save order changes"
                 >
                   Update Order
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'Order History' && (
+          <div>
+            <h2 className="text-2xl font-bold text-gray-800 mb-6">Order History</h2>
+            <div className="bg-white p-6 rounded-lg shadow-md mb-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Date Range</label>
+                  <select
+                    className="border p-2 w-full rounded-lg"
+                    value={historyFilters.dateRange}
+                    onChange={(e) => setHistoryFilters({ ...historyFilters, dateRange: e.target.value, page: 1 })}
+                    aria-label="Date range filter"
+                  >
+                    <option value="today">Today</option>
+                    <option value="yesterday">Yesterday</option>
+                    <option value="last7days">Last 7 Days</option>
+                    <option value="custom">Custom Range</option>
+                  </select>
+                  {historyFilters.dateRange === 'custom' && (
+                    <div className="mt-2 flex gap-2">
+                      <DatePicker
+                        selected={historyFilters.customStart}
+                        onChange={date => setHistoryFilters({ ...historyFilters, customStart: date, page: 1 })}
+                        className="border p-2 rounded-lg w-full"
+                        aria-label="Custom start date"
+                      />
+                      <DatePicker
+                        selected={historyFilters.customEnd}
+                        onChange={date => setHistoryFilters({ ...historyFilters, customEnd: date, page: 1 })}
+                        className="border p-2 rounded-lg w-full"
+                        aria-label="Custom end date"
+                      />
+                    </div>
+                  )}
+                </div>
+                <StatusFilter
+                  label="Status"
+                  statuses={historyFilters.statuses}
+                  onChange={(newStatuses) => setHistoryFilters({ ...historyFilters, statuses: newStatuses, page: 1 })}
+                />
+              </div>
+            </div>
+            {historyOrders.length === 0 ? (
+              <p className="text-gray-500 text-center">No orders found</p>
+            ) : (
+              <>
+                <table className="w-full bg-white rounded-lg shadow-md">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left py-3 px-4">Order ID</th>
+                      <th className="text-left py-3 px-4">Date</th>
+                      <th className="text-left py-3 px-4">Table</th>
+                      <th className="text-right py-3 px-4">Total</th>
+                      <th className="text-left py-3 px-4">Status</th>
+                      <th className="text-left py-3 px-4">Payment Method</th>
+                      <th className="text-center py-3 px-4">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {historyOrders.slice(
+                      (historyFilters.page - 1) * historyFilters.perPage,
+                      historyFilters.page * historyFilters.perPage
+                    ).map(order => {
+                      const total = order.items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0);
+                      return (
+                        <tr key={order.id} className="border-b">
+                          <td className="py-3 px-4">{order.order_number || order.id}</td>
+                          <td className="py-3 px-4">{formatToIST(new Date(order.created_at))}</td>
+                          <td className="py-3 px-4">{order.tables?.number || order.table_id}</td>
+                          <td className="text-right py-3 px-4">₹{total.toFixed(2)}</td>
+                          <td className="py-3 px-4">{order.status}</td>
+                          <td className="py-3 px-4">{order.payment_type || 'N/A'}</td>
+                          <td className="text-center py-3 px-4 flex gap-2 justify-center">
+                            <button
+                              className="text-blue-600 hover:text-blue-800"
+                              onClick={() => setViewingOrder(order)}
+                              aria-label={`View invoice for order ${order.order_number || order.id}`}
+                            >
+                              View
+                            </button>
+                            <button
+                              className="text-gray-600 hover:text-gray-800"
+                              onClick={() => printBill(order)}
+                              aria-label={`Print invoice for order ${order.order_number || order.id}`}
+                            >
+                              <PrinterIcon className="h-5 w-5" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                <div className="flex justify-between items-center mt-4">
+                  <button
+                    className="bg-gray-500 text-white px-4 py-2 rounded-lg disabled:opacity-50"
+                    onClick={() => setHistoryFilters({ ...historyFilters, page: historyFilters.page - 1 })}
+                    disabled={historyFilters.page === 1}
+                    aria-label="Previous page"
+                  >
+                    Previous
+                  </button>
+                  <span>Page {historyFilters.page} of {Math.ceil(historyOrders.length / historyFilters.perPage)}</span>
+                  <button
+                    className="bg-gray-500 text-white px-4 py-2 rounded-lg disabled:opacity-50"
+                    onClick={() => setHistoryFilters({ ...historyFilters, page: historyFilters.page + 1 })}
+                    disabled={historyFilters.page * historyFilters.perPage >= historyOrders.length}
+                    aria-label="Next page"
+                  >
+                    Next
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {viewingOrder && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+            <div className="bg-white p-6 rounded-lg max-w-2xl w-full">
+              <h3 className="text-xl font-bold mb-4">Invoice #{viewingOrder.order_number || viewingOrder.id}</h3>
+              <p className="text-sm text-gray-500 mb-2">{formatToIST(new Date(viewingOrder.created_at))}</p>
+              <p className="text-sm text-gray-500 mb-2">Table {viewingOrder.tables?.number || viewingOrder.table_id}</p>
+              <p className="text-sm text-gray-500 mb-4">Payment Method: {viewingOrder.payment_type || 'N/A'}</p>
+              <table className="w-full mb-4">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-2">Item</th>
+                    <th className="text-right py-2">Qty</th>
+                    <th className="text-right py-2">Price</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {viewingOrder.items.map((item, index) => (
+                    <tr key={index}>
+                      <td className="py-2">{item.name}</td>
+                      <td className="text-right py-2">{item.quantity || 1}</td>
+                      <td className="text-right py-2">₹{(item.price * (item.quantity || 1)).toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="flex justify-between font-semibold mb-4">
+                <span>Total</span>
+                <span>₹{viewingOrder.items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0).toFixed(2)}</span>
+              </div>
+              <div className="flex justify-end gap-2">
+                <button
+                  className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600"
+                  onClick={() => setViewingOrder(null)}
+                  aria-label="Close invoice"
+                >
+                  Close
+                </button>
+                <button
+                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                  onClick={() => printBill(viewingOrder)}
+                  aria-label={`Print invoice for ${viewingOrder.order_number || viewingOrder.id}`}
+                >
+                  <PrinterIcon className="h-5 w-5" />
+                  Print
                 </button>
               </div>
             </div>
