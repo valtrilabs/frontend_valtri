@@ -801,7 +801,9 @@ export default function Admin() {
   return (
     <div className="min-h-screen bg-gray-100 flex">
       <div className="w-64 bg-white shadow-lg p-4 fixed h-full">
-        <h1 className="text-2xl font-bold mb-8 text-gray-800">Gsaheb Cafe Admin</h1>
+        <h1 className="text-2xl font-bold mb-8 text-gray-800">Valtri Labs</h1>
+          <p className="text-sm text-gray-500 mb-8">QR Based Order Management System</p>
+
         <nav>
           {['Pending Orders', 'Order History', 'Menu Management', 'Data Analytics'].map((tab) => (
             <button
