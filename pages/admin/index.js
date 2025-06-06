@@ -52,7 +52,7 @@ export default function Admin() {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState(null);
   const [paymentType, setPaymentType] = useState('');
-  const [isLoadingAnalytics, setIsLoadingAnalytics] = useState(false);
+  const [isLoadingPaidOrders, setIsLoadingPaidOrders] = useState(false);
 
   useEffect(() => {
     localStorage.setItem('activeTab', activeTab);
@@ -139,47 +139,48 @@ export default function Admin() {
   const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   async function fetchPaidOrders() {
-    setIsLoadingAnalytics(true);
+    setIsLoadingPaidOrders(true);
     const maxRetries = 3;
     let attempts = 0;
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || '';
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
+    const params = new URLSearchParams({
+      startDate: todayStart.toISOString(),
+      endDate: todayEnd.toISOString(),
+      statuses: 'paid',
+    });
 
     while (attempts < maxRetries) {
       try {
-        console.log(`Fetching paid orders, attempt ${attempts + 1}`);
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || '';
-        const todayStart = new Date();
-        todayStart.setHours(0, 0, 0, 0);
-        const todayEnd = new Date();
-        todayEnd.setHours(23, 59, 59, 999);
-        const params = new URLSearchParams({
-          startDate: todayStart.toISOString(),
-          endDate: todayEnd.toISOString(),
-          statuses: 'paid',
-        });
+        console.log(`Fetching paid orders, attempt ${attempts + 1} of ${maxRetries}`);
         const response = await fetch(`${apiUrl}/api/admin/orders/history?${params}`, {
           headers: { 'Content-Type': 'application/json' },
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         const data = await response.json();
-        console.log('Paid orders response:', data);
+        console.log('Paid orders fetch successful:', data);
         if (!Array.isArray(data)) {
           console.warn('Received non-array data for paid orders:', data);
           throw new Error('Invalid data format');
         }
-        setPaidOrders(data);
-        console.log(`Set paid orders: ${data.length} orders`);
-        setIsLoadingAnalytics(false);
+        // Preserve existing data if new fetch returns empty array
+        setPaidOrders((prev) => (data.length > 0 ? data : prev));
+        console.log(`Set paid orders: ${data.length > 0 ? data.length : 'preserved previous'} orders`);
+        setIsLoadingPaidOrders(false);
         return;
       } catch (err) {
         attempts++;
-        console.error(`Failed to fetch paid orders (attempt ${attempts}): ${err.message}`);
+        console.error(`Failed to fetch paid orders (attempt ${attempts} of ${maxRetries}): ${err.message}`);
         if (attempts === maxRetries) {
+          console.error(`Exhausted all ${maxRetries} attempts to fetch paid orders`);
           setError(`Failed to fetch paid orders after ${maxRetries} attempts: ${err.message}`);
-          setPaidOrders([]);
-          setIsLoadingAnalytics(false);
+          setIsLoadingPaidOrders(false);
           return;
         }
-        await delay(1000);
+        await delay(1000); // 1-second delay between retries
       }
     }
   }
@@ -655,7 +656,7 @@ export default function Admin() {
     });
     console.log("Today's orders:", todaysOrders);
 
-    const totalOrders = todaysOrders.length;
+    const totalOrders = todaysOrders.length || 0;
     const totalRevenue = todaysOrders.reduce((sum, order) => {
       try {
         return sum + order.items.reduce((s, item) => s + (item.price || 0) * (item.quantity || 1), 0);
@@ -663,7 +664,7 @@ export default function Admin() {
         console.warn('Error processing order items:', order);
         return sum;
       }
-    }, 0);
+    }, 0) || 0;
     const itemCounts = {};
     todaysOrders.forEach((order) => {
       try {
@@ -692,7 +693,7 @@ export default function Admin() {
         console.warn('Error summing items:', order);
         return sum;
       }
-    }, 0);
+    }, 0) || 0;
     const aov = totalOrders > 0 ? totalRevenue / totalOrders : 0;
 
     const analytics = {
@@ -751,7 +752,7 @@ export default function Admin() {
               return `${order.order_number || order.id},${date},${item.name || 'N/A'},${item.quantity || 1},${(item.price || 0).toFixed(2)},${totalPrice},${order.status},${order.tables?.number || order.table_id || 'N/A'},${order.payment_type || 'N/A'}`;
             });
           } catch (e) {
-            console.warn('Error exporting itemized order:', order);
+            console.warn('Error exporting Ramadan order:', order);
             return [];
           }
         }),
@@ -1407,18 +1408,18 @@ export default function Admin() {
         {activeTab === 'Data Analytics' && (
           <div>
             <h2 className="text-2xl font-bold text-gray-800 mb-6">Analytics</h2>
-            {isLoadingAnalytics ? (
-              <p className="text-gray-500 text-center">Loading analytics data...</p>
+            {isLoadingPaidOrders ? (
+              <p className="text-gray-500 text-center">Loading analytics...</p>
             ) : (
               <>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
                   <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
                     <h3 className="text-lg font-semibold mb-2">Total Orders</h3>
-                    <p className="text-2xl font-bold">{analytics.totalOrders || 0}</p>
+                    <p className="text-2xl font-bold">{analytics.totalOrders}</p>
                   </div>
                   <div className="bg-gradient-to-r from-green-500 to-green-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
                     <h3 className="text-lg font-semibold mb-2">Total Revenue</h3>
-                    <p className="text-2xl font-bold">₹{(analytics.totalRevenue || 0).toFixed(2)}</p>
+                    <p className="text-2xl font-bold">₹{analytics.totalRevenue.toFixed(2)}</p>
                   </div>
                   <div className="bg-gradient-to-r from-purple-500 to-purple-600 text-white text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
                     <h3 className="text-lg font-semibold mb-2">Most Sold Item</h3>
@@ -1441,11 +1442,11 @@ export default function Admin() {
                   </div>
                   <div className="bg-gradient-to-r from-pink-500 to-pink-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
                     <h3 className="text-lg font-semibold mb-2">Average Order Value</h3>
-                    <p className="text-2xl font-bold">₹{(analytics.aov || 0).toFixed(2)}</p>
+                    <p className="text-2xl font-bold">₹{analytics.aov.toFixed(2)}</p>
                   </div>
                   <div className="bg-gradient-to-r from-yellow-500 to-yellow-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
                     <h3 className="text-lg font-semibold mb-2">Total Items Sold</h3>
-                    <p className="text-2xl font-bold">{analytics.totalItemsSold || 0}</p>
+                    <p className="text-2xl font-bold">{analytics.totalItemsSold}</p>
                   </div>
                 </div>
                 <div className="bg-white p-6 rounded-lg shadow-md">
