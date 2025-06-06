@@ -801,16 +801,19 @@ export default function Admin() {
   return (
     <div className="min-h-screen bg-gray-100 flex">
       <div className="w-64 bg-white shadow-lg p-4 fixed h-full">
-                <a
-          href="https://www.valtrilabs.com/"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="block text-2xl font-extrabold text-center mb-2 bg-gradient-to-r from-purple-500 via-pink-500 to-red-500 bg-clip-text text-transparent"
-        >
-  Valtri Labs
-</a>
-          <p className="text-sm text-gray-500 mb-8">QR Based Order Management System</p>
-
+            <div className="text-center mb-8">
+      <p className="text-sm text-gray-500 mb-1">QR Based Order Management System</p>
+      <p className="text-xs text-gray-400 mb-1">Powered by</p>
+      
+      <a
+        href="https://www.valtrilabs.com/"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-2xl font-extrabold bg-gradient-to-r from-purple-500 via-pink-500 to-red-500 bg-clip-text text-transparent"
+      >
+        Valtri Labs
+      </a>
+      </div>
         <nav>
           {['Pending Orders', 'Order History', 'Menu Management', 'Data Analytics'].map((tab) => (
             <button
