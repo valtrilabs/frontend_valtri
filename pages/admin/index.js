@@ -837,85 +837,111 @@ export default function Admin() {
         )}
 
         {activeTab === 'Pending Orders' && (
-          <div>
-            <h2 className="text-2xl font-bold text-gray-800 mb-6">Pending Orders</h2>
-            {orders.length === 0 ? (
-              <p className="text-gray-500 text-center">No pending orders</p>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {orders.map((order) => {
-                  const total = order.items.reduce(
-                    (sum, item) => sum + (item.price || 0) * (item.quantity || 1),
-                    0
-                  );
-                  const formattedDate = formatToIST(new Date(order.created_at));
-                  return (
-                    <div key={order.id} className="bg-white p-6 rounded-lg shadow-md">
-                      <div className="flex justify-between items-center mb-4">
-                        <div>
-                          <h3 className="text-lg font-semibold">Order #{order.order_number || order.id}</h3>
-                          <p className="text-sm text-gray-500">{formattedDate}</p>
-                          <p className="text-sm text-gray-500">
-                            Table {order.tables?.number || order.table_id || 'N/A'}
-                          </p>
-                        </div>
-                        <div className="flex gap-2">
-                          <button
-                            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2"
-                            onClick={() => startEditing(order)}
-                            aria-label={`Edit order ${order.order_number || order.id}`}
-                          >
-                            <PencilSquareIcon className="h-5 w-5" />
-                            Edit
-                          </button>
-                          <button
-                            className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 flex items-center gap-2"
-                            onClick={() => initiateMarkAsPaid(order.id)}
-                            aria-label={`Mark order ${order.order_number || order.id} as paid`}
-                          >
-                            Mark as Paid
-                          </button>
-                          <button
-                            className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 flex items-center gap-2"
-                            onClick={() => printBill(order)}
-                            aria-label={`Print bill for order ${order.order_number || order.id}`}
-                          >
-                            <PrinterIcon className="h-5 w-5" />
-                            Print Bill
-                          </button>
-                        </div>
-                      </div>
-                      <table className="w-full">
-                        <thead>
-                          <tr className="border-b">
-                            <th className="text-left py-2">Item</th>
-                            <th className="text-right py-2">Qty</th>
-                            <th className="text-right py-2">Price</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {order.items.map((item, index) => (
-                            <tr key={index}>
-                              <td className="py-2">{item.name || 'N/A'}</td>
-                              <td className="text-right py-2">{item.quantity || 1}</td>
-                              <td className="text-right py-2">
-                                ₹{((item.price || 0) * (item.quantity || 1)).toFixed(2)}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                      <div className="flex justify-between mt-4 font-semibold">
-                        <span>Total</span>
-                        <span>₹{total.toFixed(2)}</span>
-                      </div>
-                    </div>
-                  );
-                })}
+  <div className="px-4 py-6 max-w-screen-lg mx-auto">
+    <h2 className="text-2xl md:text-3xl font-bold text-gray-800 mb-8 text-center md:text-left">
+      Pending Orders At this moment
+    </h2>
+    {orders.length === 0 ? (
+      <p className="text-gray-500 text-center text-lg">No pending orders</p>
+    ) : (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+        {orders.map((order) => {
+          const total = order.items.reduce(
+            (sum, item) => sum + (item.price || 0) * (item.quantity || 1),
+            0
+          );
+          const formattedDate = formatToIST(new Date(order.created_at));
+          return (
+            <div
+              key={order.id}
+              className="bg-white p-6 rounded-xl shadow-lg flex flex-col"
+            >
+              <div className="flex justify-between items-start mb-5 flex-wrap gap-4">
+                <div>
+                  <h3 className="text-xl font-semibold text-gray-900">
+                    Order #{order.order_number || order.id}
+                  </h3>
+                  <p className="text-sm text-gray-500 mt-1">{formattedDate}</p>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Table {order.tables?.number || order.table_id || 'N/A'}
+                  </p>
+                </div>
+                <div className="flex gap-3 flex-wrap">
+                  <button
+                    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2 whitespace-nowrap"
+                    onClick={() => startEditing(order)}
+                    aria-label={`Edit order ${order.order_number || order.id}`}
+                  >
+                    <PencilSquareIcon className="h-5 w-5" />
+                    Edit
+                  </button>
+                  <button
+                    className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 flex items-center gap-2 whitespace-nowrap"
+                    onClick={() => initiateMarkAsPaid(order.id)}
+                    aria-label={`Mark order ${order.order_number || order.id} as paid`}
+                  >
+                    Mark as Paid
+                  </button>
+                  <button
+                    className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 flex items-center gap-2 whitespace-nowrap"
+                    onClick={() => printBill(order)}
+                    aria-label={`Print bill for order ${order.order_number || order.id}`}
+                  >
+                    <PrinterIcon className="h-5 w-5" />
+                    Print Bill
+                  </button>
+                </div>
               </div>
-            )}
-          </div>
-        )}
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[320px] table-auto border-collapse">
+                  <thead>
+                    <tr className="border-b border-gray-300">
+                      <th className="text-left py-2 px-2 md:px-4 text-gray-700 font-medium">
+                        Item
+                      </th>
+                      <th className="text-right py-2 px-2 md:px-4 text-gray-700 font-medium">
+                        Qty
+                      </th>
+                      <th className="text-right py-2 px-2 md:px-4 text-gray-700 font-medium">
+                        Price
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {order.items.map((item, index) => (
+                      <tr
+                        key={index}
+                        className={index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}
+                      >
+                        <td className="py-2 px-2 md:px-4">{item.name || 'N/A'}</td>
+                        <td className="text-right py-2 px-2 md:px-4">
+                          {item.quantity || 1}
+                        </td>
+                        <td className="text-right py-2 px-2 md:px-4">
+                          ₹{((item.price || 0) * (item.quantity || 1)).toFixed(2)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex justify-between mt-5 font-semibold text-gray-900 text-lg">
+                <span>Total</span>
+                <span>₹{total.toFixed(2)}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    )}
+  </div>
+)}
+
+
+
+
+
+
 
         {showPaymentModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
