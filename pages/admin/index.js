@@ -19,7 +19,6 @@ import { format, add } from 'date-fns';
 export default function Admin() {
   const router = useRouter();
   const [orders, setOrders] = useState([]);
-  const [paidOrders, setPaidOrders] = useState([]);
   const [menuItems, setMenuItems] = useState([]);
   const [newItem, setNewItem] = useState({ name: '', category: '', price: '', is_available: true });
   const [email, setEmail] = useState('');
@@ -53,6 +52,14 @@ export default function Admin() {
   const [selectedOrderId, setSelectedOrderId] = useState(null);
   const [paymentType, setPaymentType] = useState('');
   const [isLoadingAnalytics, setIsLoadingAnalytics] = useState(false);
+  const [analytics, setAnalytics] = useState({
+    totalOrders: 0,
+    totalRevenue: 0,
+    mostSoldItem: { name: '', totalSold: 0 },
+    peakHour: 'N/A',
+    aov: 0,
+    totalItemsSold: 0,
+  });
 
   useEffect(() => {
     localStorage.setItem('activeTab', activeTab);
@@ -68,18 +75,6 @@ export default function Admin() {
     const utcDate = new Date(date);
     const istDate = add(utcDate, { hours: 5, minutes: 30 });
     return format(istDate, 'dd/MM/yyyy');
-  };
-
-  const formatToISTHourOnly = (date) => {
-    const utcDate = new Date(date);
-    const istDate = add(utcDate, { hours: 5, minutes: 30 });
-    return format(istDate, 'HH');
-  };
-
-  const formatToISTDateForComparison = (date) => {
-    const utcDate = new Date(date);
-    const istDate = add(utcDate, { hours: 5, minutes: 30 });
-    return format(istDate, 'yyyy-MM-dd');
   };
 
   useEffect(() => {
@@ -98,7 +93,6 @@ export default function Admin() {
         const response = await fetch(`${apiUrl}/api/admin/orders`);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
-        console.log('Fetched pending orders:', data);
         setOrders(data || []);
       } catch (err) {
         setError(`Failed to fetch orders: ${err.message}`);
@@ -136,59 +130,65 @@ export default function Admin() {
     return () => supabase.removeChannel(subscription);
   }, [isLoggedIn, activeTab]);
 
-  const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-  async function fetchPaidOrders() {
-    setIsLoadingAnalytics(true);
-    const maxRetries = 3;
-    let attempts = 0;
-
-    while (attempts < maxRetries) {
+  useEffect(() => {
+    async function fetchAnalytics() {
+      if (!isLoggedIn || activeTab !== 'Data Analytics') return;
+      setIsLoadingAnalytics(true);
       try {
-        console.log(`Fetching paid orders, attempt ${attempts + 1}`);
         const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || '';
         const todayStart = new Date();
         todayStart.setHours(0, 0, 0, 0);
+        todayStart.setHours(todayStart.getHours() - 5);
+        todayStart.setMinutes(todayStart.getMinutes() - 30);
         const todayEnd = new Date();
         todayEnd.setHours(23, 59, 59, 999);
-        const params = new URLSearchParams({
-          startDate: todayStart.toISOString(),
-          endDate: todayEnd.toISOString(),
-          statuses: 'paid',
+        todayEnd.setHours(todayEnd.getHours() - 5);
+        todayEnd.setMinutes(todayEnd.getMinutes() - 30);
+
+        const endpoints = [
+          'total-orders',
+          'total-revenue',
+          'most-sold-item',
+          'peak-hours',
+          'average-order-value',
+          'total-items-sold',
+        ];
+
+        const requests = endpoints.map(endpoint =>
+          fetch(`${apiUrl}/api/admin/analytics/${endpoint}?startDate=${todayStart.toISOString()}&endDate=${todayEnd.toISOString()}`, {
+            headers: { 'Content-Type': 'application/json' },
+          }).then(res => {
+            if (!res.ok) throw new Error(`HTTP ${res.status} for ${endpoint}`);
+            return res.json();
+          })
+        );
+
+        const [totalOrders, totalRevenue, mostSoldItem, peakHour, aov, totalItemsSold] = await Promise.all(requests);
+
+        setAnalytics({
+          totalOrders: totalOrders.totalOrders || 0,
+          totalRevenue: totalRevenue.totalRevenue || 0,
+          mostSoldItem: mostSoldItem || { name: '', totalSold: 0 },
+          peakHour: peakHour.peakHour || 'N/A',
+          aov: aov.aov || 0,
+          totalItemsSold: totalItemsSold.totalItemsSold || 0,
         });
-        const response = await fetch(`${apiUrl}/api/admin/orders/history?${params}`, {
-          headers: { 'Content-Type': 'application/json' },
-        });
-        if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        const data = await response.json();
-        console.log('Paid orders response:', data);
-        if (!Array.isArray(data)) {
-          console.warn('Received non-array data for paid orders:', data);
-          throw new Error('Invalid data format');
-        }
-        setPaidOrders(data);
-        console.log(`Set paid orders: ${data.length} orders`);
-        setIsLoadingAnalytics(false);
-        return;
       } catch (err) {
-        attempts++;
-        console.error(`Failed to fetch paid orders (attempt ${attempts}): ${err.message}`);
-        if (attempts === maxRetries) {
-          setError(`Failed to fetch paid orders after ${maxRetries} attempts: ${err.message}`);
-          setPaidOrders([]);
-          setIsLoadingAnalytics(false);
-          return;
-        }
-        await delay(1000);
+        console.error('Failed to fetch analytics:', err);
+        setError(`Failed to fetch analytics: ${err.message}`);
+        setAnalytics({
+          totalOrders: 0,
+          totalRevenue: 0,
+          mostSoldItem: { name: '', totalSold: 0 },
+          peakHour: 'N/A',
+          aov: 0,
+          totalItemsSold: 0,
+        });
+      } finally {
+        setIsLoadingAnalytics(false);
       }
     }
-  }
-
-  useEffect(() => {
-    if (isLoggedIn && activeTab === 'Data Analytics') {
-      console.log('Triggering fetchPaidOrders for Data Analytics tab');
-      fetchPaidOrders();
-    }
+    fetchAnalytics();
   }, [isLoggedIn, activeTab]);
 
   useEffect(() => {
@@ -333,7 +333,6 @@ export default function Admin() {
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       setOrders((prev) => prev.filter((order) => order.id !== selectedOrderId));
-      await fetchPaidOrders();
       setShowPaymentModal(false);
       setSelectedOrderId(null);
       setPaymentType('');
@@ -642,73 +641,6 @@ export default function Admin() {
     printWindow.document.close();
   };
 
-  const getAnalytics = () => {
-    console.log('Computing analytics with paidOrders:', paidOrders);
-    const today = formatToISTDateForComparison(new Date());
-    const todaysOrders = (paidOrders || []).filter((order) => {
-      try {
-        return formatToISTDateForComparison(new Date(order.created_at)) === today;
-      } catch (e) {
-        console.warn('Invalid order date:', order.created_at);
-        return false;
-      }
-    });
-    console.log("Today's orders:", todaysOrders);
-
-    const totalOrders = todaysOrders.length;
-    const totalRevenue = todaysOrders.reduce((sum, order) => {
-      try {
-        return sum + order.items.reduce((s, item) => s + (item.price || 0) * (item.quantity || 1), 0);
-      } catch (e) {
-        console.warn('Error processing order items:', order);
-        return sum;
-      }
-    }, 0);
-    const itemCounts = {};
-    todaysOrders.forEach((order) => {
-      try {
-        order.items.forEach((item) => {
-          itemCounts[item.name] = (itemCounts[item.name] || 0) + (item.quantity || 1);
-        });
-      } catch (e) {
-        console.warn('Error counting items:', order);
-      }
-    });
-    const mostSoldItem = Object.entries(itemCounts).sort((a, b) => b[1] - a[1])[0] || ['N/A', 0];
-    const ordersByHour = Array(24).fill(0);
-    todaysOrders.forEach((order) => {
-      try {
-        const hour = parseInt(formatToISTHourOnly(new Date(order.created_at)));
-        if (!isNaN(hour)) ordersByHour[hour]++;
-      } catch (e) {
-        console.warn('Error processing order hour:', order);
-      }
-    });
-    const peakHour = ordersByHour.indexOf(Math.max(...ordersByHour));
-    const totalItemsSold = todaysOrders.reduce((sum, order) => {
-      try {
-        return sum + order.items.reduce((s, item) => s + (item.quantity || 1), 0);
-      } catch (e) {
-        console.warn('Error summing items:', order);
-        return sum;
-      }
-    }, 0);
-    const aov = totalOrders > 0 ? totalRevenue / totalOrders : 0;
-
-    const analytics = {
-      totalOrders,
-      totalRevenue,
-      mostSoldItem,
-      peakHour: peakHour === -1 ? 'N/A' : `${peakHour}:00`,
-      totalItemsSold,
-      aov,
-    };
-    console.log('Computed analytics:', analytics);
-    return analytics;
-  };
-
-  const analytics = getAnalytics();
-
   const exportOrders = () => {
     const startDate = new Date(exportFilters.startDate.setHours(0, 0, 0, 0)).toISOString();
     const endDate = new Date(exportFilters.endDate.setHours(23, 59, 59, 999)).toISOString();
@@ -895,7 +827,7 @@ export default function Admin() {
                         </div>
                         <div className="flex gap-2">
                           <button
-                            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition flex items-center gap-2"
                             onClick={() => startEditing(order)}
                             aria-label={`Edit order ${order.order_number || order.id}`}
                           >
@@ -903,14 +835,14 @@ export default function Admin() {
                             Edit
                           </button>
                           <button
-                            className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 flex items-center gap-2"
+                            className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition"
                             onClick={() => initiateMarkAsPaid(order.id)}
-                            aria-label={`Mark order ${order.order_number || order.id} as paid`}
+                            aria-label={`Mark order as paid ${order.order_number || order.id}`}
                           >
                             Mark as Paid
                           </button>
                           <button
-                            className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 flex items-center gap-2"
+                            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition flex items-center gap-2"
                             onClick={() => printBill(order)}
                             aria-label={`Print bill for order ${order.order_number || order.id}`}
                           >
@@ -932,9 +864,7 @@ export default function Admin() {
                             <tr key={index}>
                               <td className="py-2">{item.name || 'N/A'}</td>
                               <td className="text-right py-2">{item.quantity || 1}</td>
-                              <td className="text-right py-2">
-                                ₹{((item.price || 0) * (item.quantity || 1)).toFixed(2)}
-                              </td>
+                              <td className="text-right py-2">₹{((item.price || 0) * (item.quantity || 1)).toFixed(2)}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -953,12 +883,12 @@ export default function Admin() {
 
         {showPaymentModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-              <div className="bg-white p-6 rounded-lg max-w-2xl w-full">
+            <div className="bg-white p-6 rounded-lg max-w-md w-full">
               <h3 className="text-xl font-semibold mb-4">Select Payment Method</h3>
               <select
                 value={paymentType}
                 onChange={(e) => setPaymentType(e.target.value)}
-                className="border p-2 w-full rounded-md mb-4"
+                className="border p-2 w-full mb-4 rounded-md"
                 aria-label="Select payment method"
               >
                 <option value="">Select Payment Method</option>
@@ -967,7 +897,7 @@ export default function Admin() {
                 <option value="Bank">Bank</option>
                 <option value="Card">Card</option>
               </select>
-              <div className="flex justify-end gap-4">
+              <div className="flex justify-end gap-2">
                 <button
                   className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 transition"
                   onClick={() => {
@@ -1003,7 +933,7 @@ export default function Admin() {
                     <th className="text-left py-2">Item</th>
                     <th className="text-right py-2">Qty</th>
                     <th className="text-right py-2">Price</th>
-                    <th className="text-center py-2">Actions</th>
+                    <th className="text-center py-2">Remove</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1015,7 +945,7 @@ export default function Admin() {
                           <button
                             className="bg-gray-200 text-gray-800 px-3 py-1 rounded hover:bg-gray-300"
                             onClick={() => updateQuantity(index, -1)}
-                            aria-label={`Decrease quantity for ${item.name}`}
+                            aria-label={`Decrease quantity for item ${item.name}`}
                           >
                             -
                           </button>
@@ -1023,7 +953,7 @@ export default function Admin() {
                           <button
                             className="bg-gray-200 text-gray-800 px-3 py-1 rounded hover:bg-gray-300"
                             onClick={() => updateQuantity(index, 1)}
-                            aria-label={`Increase quantity for ${item.name}`}
+                            aria-label={`Increase quantity for item ${item.name}`}
                           >
                             +
                           </button>
@@ -1063,7 +993,7 @@ export default function Admin() {
                     ))}
                 </select>
               </div>
-              <div className="flex justify-end gap-4">
+              <div className="flex justify-end gap-2">
                 <button
                   className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 transition"
                   onClick={cancelEdit}
@@ -1085,7 +1015,7 @@ export default function Admin() {
 
         {activeTab === 'Order History' && (
           <div>
-            <h2 className="text-2xl font-semibold text-gray-800 mb-6">Order History</h2>
+            <h2 className="text-2xl font-bold mb-6">Order History</h2>
             <div className="bg-white p-6 rounded-lg shadow-md mb-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
@@ -1105,32 +1035,57 @@ export default function Admin() {
                   </select>
                   {historyFilters.dateRange === 'custom' && (
                     <div className="mt-2 flex gap-2">
-                      <DatePicker
-                        selected={historyFilters.customStart}
-                        onChange={(date) =>
-                          setHistoryFilters({ ...historyFilters, customStart: date, page: 1 })
-                        }
-                        className="border p-2 rounded-md w-full"
-                        aria-label="Select start date"
-                      />
-                      <DatePicker
-                        selected={historyFilters.customEnd}
-                        onChange={(date) =>
-                          setHistoryFilters({ ...historyFilters, customEnd: date, page: 1 })
-                        }
-                        className="border p-2 rounded-md w-full"
-                        aria-label="Select end date"
-                      />
+                      <div>
+                        <DatePicker
+                          selected={historyFilters.customStart}
+                          onChange={(date) =>
+                            setHistoryFilters((prev) => ({ ...prev, customStart: date, page: 1 }))
+                          }
+                          className="border p-2 rounded-md w-full"
+                          aria-label="Select start date"
+                        />
+                      </div>
+                      <div>
+                        <DatePicker
+                          selected={historyFilters.customEnd}
+                          onChange={(date) =>
+                            setHistoryFilters((prev) => ({ ...prev, customEnd: date, page: 1 }))
+                          }
+                          className="border p-2 rounded-md w-full"
+                          aria-label="Select end date"
+                        />
+                      </div>
                     </div>
                   )}
                 </div>
-                <StatusFilter
-                  label="Status"
-                  statuses={historyFilters.statuses}
-                  onChange={(newStatuses) =>
-                    setHistoryFilters({ ...historyFilters, statuses: newStatuses, page: 1 })
-                  }
-                />
+                <div>
+                  <StatusFilter
+                    label="Status"
+                    statuses={historyFilters.statuses}
+                    onChange={(newStatuses) =>
+                      setHistoryFilters({ ...historyFilters, statuses: newStatuses, page: 1 })
+                    }
+                  />
+                </div>
+              </div>
+              <div className="mt-4">
+                <label className="block text-sm font-medium mb-1">Export Orders</label>
+                <select
+                  className="border p-2 rounded-md mr-2"
+                  value={exportType}
+                  onChange={(e) => setExportType(e.target.value)}
+                  aria-label="Select export type"
+                >
+                  <option value="order">Order Summary</option>
+                  <option value="itemized">Itemized Orders</option>
+                </select>
+                <button
+                  className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition"
+                  onClick={exportOrders}
+                  aria-label="Export orders"
+                >
+                  Export
+                </button>
               </div>
             </div>
             {historyOrders.length === 0 ? (
@@ -1143,7 +1098,7 @@ export default function Admin() {
                       <th className="text-left py-3 px-4">Order ID</th>
                       <th className="text-left py-3 px-4">Date</th>
                       <th className="text-left py-3 px-4">Table</th>
-                      <th className="text-right py-3 px-4">Total</th>
+                      <th className="text-right py-3 px-4">Amount</th>
                       <th className="text-left py-3 px-4">Status</th>
                       <th className="text-left py-3 px-4">Payment Method</th>
                       <th className="text-center py-3 px-4">Actions</th>
@@ -1168,21 +1123,23 @@ export default function Admin() {
                             <td className="text-right py-3 px-4">₹{total.toFixed(2)}</td>
                             <td className="py-3 px-4">{order.status}</td>
                             <td className="py-3 px-4">{order.payment_type || 'N/A'}</td>
-                            <td className="text-center py-3 px-4 flex gap-2 justify-center">
-                              <button
-                                className="text-blue-600 hover:text-blue-800"
-                                onClick={() => setViewingOrder(order)}
-                                aria-label={`View invoice for order ${order.order_number || order.id}`}
-                              >
-                                View
-                              </button>
-                              <button
-                                className="text-gray-600 hover:text-gray-800"
-                                onClick={() => printBill(order)}
-                                aria-label={`Print invoice for order ${order.order_number || order.id}`}
-                              >
-                                <PrinterIcon className="h-5 w-5" />
-                              </button>
+                            <td className="text-center py-3 px-4">
+                              <div className="flex gap-2 justify-center">
+                                <button
+                                  className="text-blue-600 hover:text-blue-800"
+                                  onClick={() => setViewingOrder(order)}
+                                  aria-label={`View order ${order.order_number || order.id}`}
+                                >
+                                  View
+                                </button>
+                                <button
+                                  className="text-gray-600 hover:text-gray-800"
+                                  onClick={() => printBill(order)}
+                                  aria-label={`Print bill for order ${order.order_number || order.id}`}
+                                >
+                                  <PrinterIcon className="h-5 w-5" />
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         );
@@ -1191,8 +1148,8 @@ export default function Admin() {
                 </table>
                 <div className="flex justify-between items-center mt-4">
                   <button
-                    className="bg-gray-500 text-white px-4 py-2 rounded-lg disabled:opacity-50"
-                    onClick={() => setHistoryFilters({ ...historyFilters, page: historyFilters.page - 1 })}
+                    className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 transition disabled:bg-gray-300"
+                    onClick={() => setHistoryFilters((prev) => ({ ...prev, page: prev.page - 1 }))}
                     disabled={historyFilters.page === 1}
                     aria-label="Previous page"
                   >
@@ -1202,8 +1159,8 @@ export default function Admin() {
                     Page {historyFilters.page} of {Math.ceil(historyOrders.length / historyFilters.perPage)}
                   </span>
                   <button
-                    className="bg-gray-500 text-white px-4 py-2 rounded-lg disabled:opacity-50"
-                    onClick={() => setHistoryFilters({ ...historyFilters, page: historyFilters.page + 1 })}
+                    className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 transition disabled:bg-gray-300"
+                    onClick={() => setHistoryFilters((prev) => ({ ...prev, page: prev.page + 1 }))}
                     disabled={historyFilters.page * historyFilters.perPage >= historyOrders.length}
                     aria-label="Next page"
                   >
@@ -1225,7 +1182,9 @@ export default function Admin() {
               <p className="text-sm text-gray-500 mb-2">
                 Table {viewingOrder.tables?.number || viewingOrder.table_id || 'N/A'}
               </p>
-              <p className="text-sm text-gray-500 mb-4">Payment Method: {viewingOrder.payment_type || 'N/A'}</p>
+              <p className="text-sm text-gray-500 mb-4">
+                Payment Method: {viewingOrder.payment_type || 'N/A'}
+              </p>
               <table className="w-full mb-4">
                 <thead>
                   <tr className="border-b">
@@ -1248,9 +1207,11 @@ export default function Admin() {
               </table>
               <div className="flex justify-between font-semibold mb-4">
                 <span>Total</span>
-                <span>₹{viewingOrder.items.reduce((sum, item) => sum + ((item.price || 0) * (item.quantity || 1)), 0).toFixed(2)}</span>
+                <span>
+                  ₹{viewingOrder.items.reduce((sum, item) => sum + (item.price || 0) * (item.quantity || 1), 0).toFixed(2)}
+                </span>
               </div>
-              <div className="flex justify-end gap-4">
+              <div className="flex justify-end gap-2">
                 <button
                   className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 transition"
                   onClick={() => setViewingOrder(null)}
@@ -1261,7 +1222,7 @@ export default function Admin() {
                 <button
                   className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition flex items-center gap-2"
                   onClick={() => printBill(viewingOrder)}
-                  aria-label={`Print invoice for ${viewingOrder.order_number || viewingOrder.id}`}
+                  aria-label={`Print invoice for order ${viewingOrder.order_number || viewingOrder.id}`}
                 >
                   <PrinterIcon className="h-5 w-5" />
                   Print
@@ -1273,7 +1234,7 @@ export default function Admin() {
 
         {activeTab === 'Menu Management' && (
           <div>
-            <h2 className="text-2xl font-bold text-gray-800 mb-6">Menu Management</h2>
+            <h2 className="text-2xl font-bold mb-6">Menu Management</h2>
             <div className="bg-white p-6 rounded-lg shadow-md mb-6">
               <h3 className="text-lg font-semibold mb-4">Add New Item</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -1314,14 +1275,14 @@ export default function Admin() {
                       checked={newItem.is_available}
                       onChange={(e) => setNewItem({ ...newItem, is_available: e.target.checked })}
                       className="mr-2"
-                      aria-label="Item availability checkbox"
+                      aria-label="Toggle item availability"
                     />
                     Available
                   </label>
                 </div>
               </div>
               <button
-                className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
+                className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition"
                 onClick={addMenuItem}
                 aria-label="Add menu item"
               >
@@ -1347,54 +1308,45 @@ export default function Admin() {
                     <td className="py-3 px-4">{item.category || 'N/A'}</td>
                     <td className="text-right py-3 px-4">₹{(item.price || 0).toFixed(2)}</td>
                     <td className="text-center py-3 px-4">
-                      {item.is_available ? (
-                        <CheckCircleIcon className="h-5 w-5 text-green-600 mx-auto" />
-                      ) : (
-                        <XCircleIcon className="h-5 w-5 text-red-600 mx-auto" />
-                      )}
+                      <button
+                        onClick={() => toggleAvailability(item.id, item.is_available)}
+                        className={item.is_available ? 'text-green-600' : 'text-red-600'}
+                        aria-label={`Toggle availability for ${item.name}`}
+                      >
+                        {item.is_available ? <CheckCircleIcon className="h-5 w-5 mx-auto" /> : <XCircleIcon className="h-5 w-5 mx-auto" />}
+                      </button>
                     </td>
                     <td className="text-center py-3 px-4">
                       {item.image_url ? (
-                        <img
-                          src={item.image_url}
-                          alt={item.name || 'Menu item'}
-                          className="h-16 w-16 object-cover rounded-md mx-auto"
-                        />
+                        <div className="flex items-center justify-center gap-2">
+                          <img src={item.image_url} alt={item.name} className="h-16 w-16 object-cover rounded" />
+                          <button
+                            className="text-red-600 hover:text-red-800"
+                            onClick={() => deleteImage(item.id, item.image_url)}
+                            aria-label={`Delete image for ${item.name}`}
+                          >
+                            <TrashIcon className="h-5 w-5" />
+                          </button>
+                        </div>
                       ) : (
-                        <span className="text-gray-500">No Image</span>
+                        <div className="flex items-center justify-center">
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => uploadImage(item.id, e.target.files?.[0])}
+                            className="text-sm"
+                            aria-label={`Upload image for ${item.name}`}
+                          />
+                        </div>
                       )}
                     </td>
-                    <td className="text-center py-3 px-4 flex gap-2 justify-center">
-                      <label className="bg-blue-600 text-white px-2 py-1 rounded-md hover:bg-blue-700 cursor-pointer">
-                        <input
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={(e) => uploadImage(item.id, e.target.files[0])}
-                        />
-                        Upload Image
-                      </label>
-                      <button
-                        className="bg-red-600 text-white px-2 py-1 rounded-md hover:bg-red-700 transition"
-                        onClick={() => deleteImage(item.id, item.image_url)}
-                        disabled={!item.image_url}
-                        aria-label={`Delete image for ${item.name}`}
-                      >
-                        Delete Image
-                      </button>
-                      <button
-                        className="text-blue-600 hover:text-blue-800"
-                        onClick={() => toggleAvailability(item.id, item.is_available)}
-                        aria-label={`Toggle availability for ${item.name}`}
-                      >
-                        {item.is_available ? 'Disable' : 'Enable'}
-                      </button>
+                    <td className="text-center py-3 px-4">
                       <button
                         className="text-red-600 hover:text-red-800"
                         onClick={() => removeMenuItem(item.id)}
-                        aria-label={`Remove ${item.name}`}
+                        aria-label={`Remove menu item ${item.name}`}
                       >
-                        <TrashIcon className="h-5 w-5" />
+                        <TrashIcon className="h-5 w-5 mx-auto" />
                       </button>
                     </td>
                   </tr>
@@ -1406,100 +1358,45 @@ export default function Admin() {
 
         {activeTab === 'Data Analytics' && (
           <div>
-            <h2 className="text-2xl font-bold text-gray-800 mb-6">Analytics</h2>
+            <h2 className="text-2xl font-bold mb-6">Data Analytics</h2>
             {isLoadingAnalytics ? (
-              <p className="text-gray-500 text-center">Loading analytics data...</p>
+              <p className="text-gray-500 text-center">Loading analytics...</p>
             ) : (
-              <>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-                  <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
-                    <h3 className="text-lg font-semibold mb-2">Total Orders</h3>
-                    <p className="text-2xl font-bold">{analytics.totalOrders || 0}</p>
-                  </div>
-                  <div className="bg-gradient-to-r from-green-500 to-green-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
-                    <h3 className="text-lg font-semibold mb-2">Total Revenue</h3>
-                    <p className="text-2xl font-bold">₹{(analytics.totalRevenue || 0).toFixed(2)}</p>
-                  </div>
-                  <div className="bg-gradient-to-r from-purple-500 to-purple-600 text-white text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
-                    <h3 className="text-lg font-semibold mb-2">Most Sold Item</h3>
-                    <p className="text-2xl font-bold">{analytics.mostSoldItem[0]}</p>
-                    <p className="text-sm">{analytics.mostSoldItem[1]} units</p>
-                  </div>
-                  <div className="bg-gradient-to-r from-orange-500 to-orange-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
-                    <h3 className="text-lg font-semibold mb-2">Peak Hour</h3>
-                    <p className="text-2xl font-bold">{analytics.peakHour}</p>
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-                  <div className="bg-gradient-to-r from-teal-500 to-teal-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
-                    <h3 className="text-lg font-semibold mb-2">Weekly Revenue</h3>
-                    <p className="text-2xl font-bold">₹{(weeklyRevenue || 0).toFixed(2)}</p>
-                  </div>
-                  <div className="bg-gradient-to-r from-indigo-500 to-indigo-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
-                    <h3 className="text-lg font-semibold mb-2">Monthly Revenue</h3>
-                    <p className="text-2xl font-bold">₹{(monthlyRevenue || 0).toFixed(2)}</p>
-                  </div>
-                  <div className="bg-gradient-to-r from-pink-500 to-pink-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
-                    <h3 className="text-lg font-semibold mb-2">Average Order Value</h3>
-                    <p className="text-2xl font-bold">₹{(analytics.aov || 0).toFixed(2)}</p>
-                  </div>
-                  <div className="bg-gradient-to-r from-yellow-500 to-yellow-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
-                    <h3 className="text-lg font-semibold mb-2">Total Items Sold</h3>
-                    <p className="text-2xl font-bold">{analytics.totalItemsSold || 0}</p>
-                  </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div className="bg-white p-6 rounded-lg shadow-md">
+                  <h3 className="text-lg font-semibold mb-2">Total Orders (Today)</h3>
+                  <p className="text-3xl font-bold">{analytics.totalOrders}</p>
                 </div>
                 <div className="bg-white p-6 rounded-lg shadow-md">
-                  <h3 className="text-lg font-semibold mb-4">Export Orders</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Export Type</label>
-                      <select
-                        className="border p-2 w-full rounded-md"
-                        value={exportType}
-                        onChange={(e) => setExportType(e.target.value)}
-                        aria-label="Select export type"
-                      >
-                        <option value="order">Order Summary</option>
-                        <option value="items">Itemized</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Start Date</label>
-                      <DatePicker
-                        selected={exportFilters.startDate}
-                        onChange={(date) => setExportFilters({ ...exportFilters, startDate: date })}
-                        className="border p-2 rounded-md w-full"
-                        aria-label="Select start date for export"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">End Date</label>
-                      <DatePicker
-                        selected={exportFilters.endDate}
-                        onChange={(date) => setExportFilters({ ...exportFilters, endDate: date })}
-                        className="border p-2 rounded-md w-full"
-                        aria-label="Select end date for export"
-                      />
-                    </div>
-                  </div>
-                  <div className="mt-4">
-                    <StatusFilter
-                      label="Status"
-                      statuses={exportFilters.statuses}
-                      onChange={(newStatuses) =>
-                        setExportFilters({ ...exportFilters, statuses: newStatuses })
-                      }
-                    />
-                  </div>
-                  <button
-                    className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
-                    onClick={exportOrders}
-                    aria-label="Export orders"
-                  >
-                    Export
-                  </button>
+                  <h3 className="text-lg font-semibold mb-2">Total Revenue (Today)</h3>
+                  <p className="text-3xl font-bold">₹{analytics.totalRevenue.toFixed(2)}</p>
                 </div>
-              </>
+                <div className="bg-white p-6 rounded-lg shadow-md">
+                  <h3 className="text-lg font-semibold mb-2">Weekly Revenue</h3>
+                  <p className="text-3xl font-bold">₹{weeklyRevenue.toFixed(2)}</p>
+                </div>
+                <div className="bg-white p-6 rounded-lg shadow-md">
+                  <h3 className="text-lg font-semibold mb-2">Monthly Revenue</h3>
+                  <p className="text-3xl font-bold">₹{monthlyRevenue.toFixed(2)}</p>
+                </div>
+                <div className="bg-white p-6 rounded-lg shadow-md">
+                  <h3 className="text-lg font-semibold mb-2">Most Popular Item</h3>
+                  <p className="text-lg">{analytics.mostSoldItem?.name || 'N/A'}</p>
+                  <p className="text-sm text-gray-500">Sold: {analytics.mostSoldItem?.totalSold || 0} units</p>
+                </div>
+                <div className="bg-white p-6 rounded-lg shadow-md">
+                  <h3 className="text-lg font-semibold mb-2">Peak Hour (Today)</h3>
+                  <p className="text-3xl font-bold">{analytics.peakHour}</p>
+                </div>
+                <div className="bg-white p-6 rounded-lg shadow-md">
+                  <h3 className="text-lg font-semibold mb-2">Average Order Value (Today)</h3>
+                  <p className="text-3xl font-bold">₹{analytics.aov.toFixed(2)}</p>
+                </div>
+                <div className="bg-white p-6 rounded-lg shadow-md">
+                  <h3 className="text-lg font-semibold mb-2">Total Items Sold (Today)</h3>
+                  <p className="text-3xl font-bold">{analytics.totalItemsSold}</p>
+                </div>
+              </div>
             )}
           </div>
         )}
