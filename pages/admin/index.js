@@ -19,15 +19,16 @@ import { format, add } from 'date-fns';
 export default function Admin() {
   const router = useRouter();
   const [orders, setOrders] = useState([]);
+  const [paidOrders, setPaidOrders] = useState([]);
   const [menuItems, setMenuItems] = useState([]);
   const [newItem, setNewItem] = useState({ name: '', category: '', price: '', is_available: true });
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [error, setError] = useState(null);
-  const [activeTab, setActiveTab] = useState(() => {
-    return typeof window !== 'undefined' ? localStorage.getItem('activeTab') || 'Pending Orders' : 'Pending Orders';
-  });
+  const [activeTab, setActiveTab] = useState(() =>
+    typeof window !== 'undefined' ? localStorage.getItem('activeTab') || 'Pending Orders' : 'Pending Orders'
+  );
   const [editingOrder, setEditingOrder] = useState(null);
   const [editedItems, setEditedItems] = useState([]);
   const [historyOrders, setHistoryOrders] = useState([]);
@@ -51,13 +52,7 @@ export default function Admin() {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState(null);
   const [paymentType, setPaymentType] = useState('');
-  // New analytics state variables from Code 2
-  const [totalOrders, setTotalOrders] = useState(0);
-  const [totalRevenue, setTotalRevenue] = useState(0);
-  const [mostSoldItem, setMostSoldItem] = useState({ name: '', totalSold: 0 });
-  const [peakHour, setPeakHour] = useState('N/A');
-  const [totalItemsSold, setTotalItemsSold] = useState(0);
-  const [averageOrderValue, setAverageOrderValue] = useState(0);
+  const [isLoadingAnalytics, setIsLoadingAnalytics] = useState(false);
 
   useEffect(() => {
     localStorage.setItem('activeTab', activeTab);
@@ -99,11 +94,12 @@ export default function Admin() {
   useEffect(() => {
     async function fetchOrders() {
       try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || '';
         const response = await fetch(`${apiUrl}/api/admin/orders`);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
-        setOrders(data);
+        console.log('Fetched pending orders:', data);
+        setOrders(data || []);
       } catch (err) {
         setError(`Failed to fetch orders: ${err.message}`);
       }
@@ -119,11 +115,11 @@ export default function Admin() {
         const newOrder = payload.new;
         if (newOrder.status === 'pending') {
           try {
-            const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
+            const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || '';
             const response = await fetch(`${apiUrl}/api/orders/${newOrder.id}`);
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const orderDetails = await response.json();
-            setOrders(prevOrders => [...prevOrders, orderDetails]);
+            setOrders((prevOrders) => [...prevOrders, orderDetails]);
           } catch (err) {
             setError(`Failed to fetch new order: ${err.message}`);
           }
@@ -132,7 +128,7 @@ export default function Admin() {
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, (payload) => {
         const updatedOrder = payload.new;
         if (updatedOrder.status !== 'pending') {
-          setOrders(prevOrders => prevOrders.filter(order => order.id !== updatedOrder.id));
+          setOrders((prevOrders) => prevOrders.filter((order) => order.id !== updatedOrder.id));
         }
       })
       .subscribe();
@@ -140,79 +136,67 @@ export default function Admin() {
     return () => supabase.removeChannel(subscription);
   }, [isLoggedIn, activeTab]);
 
-  useEffect(() => {
-    async function fetchMenu() {
+  const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  async function fetchPaidOrders() {
+    setIsLoadingAnalytics(true);
+    const maxRetries = 3;
+    let attempts = 0;
+
+    while (attempts < maxRetries) {
       try {
-        const { data, error } = await supabase.from('menu_items').select('*');
-        if (error) throw error;
-        setMenuItems(data);
+        console.log(`Fetching paid orders, attempt ${attempts + 1}`);
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || '';
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        const todayEnd = new Date();
+        todayEnd.setHours(23, 59, 59, 999);
+        const params = new URLSearchParams({
+          startDate: todayStart.toISOString(),
+          endDate: todayEnd.toISOString(),
+          statuses: 'paid',
+        });
+        const response = await fetch(`${apiUrl}/api/admin/orders/history?${params}`, {
+          headers: { 'Content-Type': 'application/json' },
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        const data = await response.json();
+        console.log('Paid orders response:', data);
+        if (!Array.isArray(data)) {
+          console.warn('Received non-array data for paid orders:', data);
+          throw new Error('Invalid data format');
+        }
+        setPaidOrders(data);
+        console.log(`Set paid orders: ${data.length} orders`);
+        setIsLoadingAnalytics(false);
+        return;
       } catch (err) {
-        setError(`Failed to fetch menu: ${err.message}`);
+        attempts++;
+        console.error(`Failed to fetch paid orders (attempt ${attempts}): ${err.message}`);
+        if (attempts === maxRetries) {
+          setError(`Failed to fetch paid orders after ${maxRetries} attempts: ${err.message}`);
+          setPaidOrders([]);
+          setIsLoadingAnalytics(false);
+          return;
+        }
+        await delay(1000);
       }
     }
-    if (isLoggedIn) fetchMenu();
-  }, [isLoggedIn]);
+  }
 
   useEffect(() => {
-    async function fetchHistory() {
-      try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
-        let startDate, endDate;
-        const today = new Date();
-        switch (historyFilters.dateRange) {
-          case 'today':
-            startDate = new Date(today.setHours(0, 0, 0, 0)).toISOString();
-            endDate = new Date(today.setHours(23, 59, 59, 999)).toISOString();
-            break;
-          case 'yesterday':
-            startDate = new Date(today.setDate(today.getDate() - 1));
-            startDate.setHours(0, 0, 0, 0);
-            endDate = new Date(today.setDate(today.getDate()));
-            endDate.setHours(23, 59, 59, 999);
-            startDate = startDate.toISOString();
-            endDate = endDate.toISOString();
-            break;
-          case 'last7days':
-            startDate = new Date(today.setDate(today.getDate() - 7));
-            startDate.setHours(0, 0, 0, 0);
-            endDate = new Date(today);
-            endDate.setHours(23, 59, 59, 999);
-            startDate = startDate.toISOString();
-            endDate = endDate.toISOString();
-            break;
-          case 'custom':
-            startDate = new Date(historyFilters.customStart.setHours(0, 0, 0, 0)).toISOString();
-            endDate = new Date(historyFilters.customEnd.setHours(23, 59, 59, 999)).toISOString();
-            break;
-          default:
-            break;
-        }
-        const params = new URLSearchParams();
-        if (startDate && endDate) {
-          params.append('startDate', startDate);
-          params.append('endDate', endDate);
-        }
-        if (historyFilters.statuses.length) {
-          params.append('statuses', historyFilters.statuses.join(','));
-        }
-        const response = await fetch(`${apiUrl}/api/admin/orders/history?${params}`);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = await response.json();
-        setHistoryOrders(data);
-      } catch (err) {
-        setError(`Failed to fetch order history: ${err.message}`);
-      }
+    if (isLoggedIn && activeTab === 'Data Analytics') {
+      console.log('Triggering fetchPaidOrders for Data Analytics tab');
+      fetchPaidOrders();
     }
-    if (isLoggedIn && activeTab === 'Order History') fetchHistory();
-  }, [isLoggedIn, activeTab, historyFilters.dateRange, historyFilters.statuses, historyFilters.customStart, historyFilters.customEnd]);
+  }, [isLoggedIn, activeTab]);
 
   useEffect(() => {
     async function fetchRevenueData() {
       try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || '';
         const now = new Date();
 
-        // Weekly Revenue (last 7 days)
         const weekStart = new Date(now);
         weekStart.setDate(now.getDate() - 7);
         weekStart.setHours(0, 0, 0, 0);
@@ -229,7 +213,6 @@ export default function Admin() {
         const weekData = await weekResponse.json();
         setWeeklyRevenue(weekData.totalRevenue || 0);
 
-        // Monthly Revenue (last 30 days)
         const monthStart = new Date(now);
         monthStart.setDate(now.getDate() - 30);
         monthStart.setHours(0, 0, 0, 0);
@@ -253,61 +236,71 @@ export default function Admin() {
   }, [isLoggedIn, activeTab]);
 
   useEffect(() => {
-    if (isLoggedIn && activeTab === 'Data Analytics') {
-      const fetchAnalytics = async () => {
-        try {
-          const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
-          const now = new Date();
-          const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-          const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-          const startDate = todayStart.toISOString();
-          const endDate = todayEnd.toISOString();
-
-          await Promise.all([
-            fetch(`${apiUrl}/api/admin/analytics/total-orders?startDate=${startDate}&endDate=${endDate}`)
-              .then(res => {
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                return res.json();
-              })
-              .then(data => setTotalOrders(data.totalOrders || 0)),
-            fetch(`${apiUrl}/api/admin/analytics/total-revenue?startDate=${startDate}&endDate=${endDate}`)
-              .then(res => {
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                return res.json();
-              })
-              .then(data => setTotalRevenue(data.totalRevenue || 0)),
-            fetch(`${apiUrl}/api/admin/analytics/most-sold-item?startDate=${startDate}&endDate=${endDate}`)
-              .then(res => {
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                return res.json();
-              })
-              .then(data => setMostSoldItem(data || { name: '', totalSold: 0 })),
-            fetch(`${apiUrl}/api/admin/analytics/peak-hours?startDate=${startDate}&endDate=${endDate}`)
-              .then(res => {
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                return res.json();
-              })
-              .then(data => setPeakHour(data.peakHour || 'N/A')),
-            fetch(`${apiUrl}/api/admin/analytics/total-items-sold?startDate=${startDate}&endDate=${endDate}`)
-              .then(res => {
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                return res.json();
-              })
-              .then(data => setTotalItemsSold(data.totalItemsSold || 0)),
-            fetch(`${apiUrl}/api/admin/analytics/average-order-value?startDate=${startDate}&endDate=${endDate}`)
-              .then(res => {
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                return res.json();
-              })
-              .then(data => setAverageOrderValue(data.averageOrderValue || 0)),
-          ]);
-        } catch (err) {
-          setError(`Failed to fetch analytics: ${err.message}`);
-        }
-      };
-      fetchAnalytics();
+    async function fetchMenu() {
+      try {
+        const { data, error } = await supabase.from('menu_items').select('*');
+        if (error) throw error;
+        setMenuItems(data || []);
+      } catch (err) {
+        setError(`Failed to fetch menu: ${err.message}`);
+      }
     }
-  }, [isLoggedIn, activeTab]);
+    if (isLoggedIn) fetchMenu();
+  }, [isLoggedIn]);
+
+  const fetchHistory = async () => {
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || '';
+      let startDate, endDate;
+      const today = new Date();
+      switch (historyFilters.dateRange) {
+        case 'today':
+          startDate = new Date(today.setHours(0, 0, 0, 0)).toISOString();
+          endDate = new Date(today.setHours(23, 59, 59, 999)).toISOString();
+          break;
+        case 'yesterday':
+          startDate = new Date(today.setDate(today.getDate() - 1));
+          startDate.setHours(0, 0, 0, 0);
+          endDate = new Date(today.setDate(today.getDate()));
+          endDate.setHours(23, 59, 59, 999);
+          startDate = startDate.toISOString();
+          endDate = endDate.toISOString();
+          break;
+        case 'last7days':
+          startDate = new Date(today.setDate(today.getDate() - 7));
+          startDate.setHours(0, 0, 0, 0);
+          endDate = new Date(today);
+          endDate.setHours(23, 59, 59, 999);
+          startDate = startDate.toISOString();
+          endDate = endDate.toISOString();
+          break;
+        case 'custom':
+          startDate = new Date(historyFilters.customStart.setHours(0, 0, 0, 0)).toISOString();
+          endDate = new Date(historyFilters.customEnd.setHours(23, 59, 59, 999)).toISOString();
+          break;
+        default:
+          break;
+      }
+      const params = new URLSearchParams();
+      if (startDate && endDate) {
+        params.append('startDate', startDate);
+        params.append('endDate', endDate);
+      }
+      if (historyFilters.statuses.length) {
+        params.append('statuses', historyFilters.statuses.join(','));
+      }
+      const response = await fetch(`${apiUrl}/api/admin/orders/history?${params}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      setHistoryOrders(data || []);
+    } catch (err) {
+      setError(`Failed to fetch order history: ${err.message}`);
+    }
+  };
+
+  useEffect(() => {
+    if (isLoggedIn && activeTab === 'Order History') fetchHistory();
+  }, [isLoggedIn, activeTab, historyFilters.dateRange, historyFilters.statuses, historyFilters.customStart, historyFilters.customEnd]);
 
   const handleLogin = async () => {
     try {
@@ -332,14 +325,15 @@ export default function Admin() {
     }
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || '';
       const response = await fetch(`${apiUrl}/api/orders/${selectedOrderId}/pay`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ payment_type: paymentType }),
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      setOrders(orders.filter(order => order.id !== selectedOrderId));
+      setOrders((prev) => prev.filter((order) => order.id !== selectedOrderId));
+      await fetchPaidOrders();
       setShowPaymentModal(false);
       setSelectedOrderId(null);
       setPaymentType('');
@@ -365,20 +359,23 @@ export default function Admin() {
   };
 
   const addItem = (itemId) => {
-    const menuItem = menuItems.find(item => item.id === itemId);
-    if (menuItem && !editedItems.some(item => item.item_id === itemId)) {
-      setEditedItems([...editedItems, {
-        item_id: menuItem.id,
-        name: menuItem.name,
-        price: menuItem.price,
-        quantity: 1,
-      }]);
+    const menuItem = menuItems.find((item) => item.id === itemId);
+    if (menuItem && !editedItems.some((item) => item.item_id === itemId)) {
+      setEditedItems([
+        ...editedItems,
+        {
+          item_id: menuItem.id,
+          name: menuItem.name,
+          price: menuItem.price,
+          quantity: 1,
+        },
+      ]);
     }
   };
 
   const saveOrder = async () => {
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || '';
       const response = await fetch(`${apiUrl}/api/orders/${editingOrder.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -386,7 +383,7 @@ export default function Admin() {
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const updatedOrder = await response.json();
-      setOrders(orders.map(o => o.id === editingOrder.id ? updatedOrder : o));
+      setOrders((prev) => prev.map((o) => (o.id === editingOrder.id ? updatedOrder : o)));
       setEditingOrder(null);
       setEditedItems([]);
     } catch (err) {
@@ -407,12 +404,14 @@ export default function Admin() {
     try {
       const { data, error } = await supabase
         .from('menu_items')
-        .insert([{
-          name: newItem.name,
-          category: newItem.category || '',
-          price: parseFloat(newItem.price),
-          is_available: newItem.is_available,
-        }])
+        .insert([
+          {
+            name: newItem.name,
+            category: newItem.category || '',
+            price: parseFloat(newItem.price),
+            is_available: newItem.is_available,
+          },
+        ])
         .select();
       if (error) throw error;
       setMenuItems([...menuItems, data[0]]);
@@ -424,12 +423,9 @@ export default function Admin() {
 
   const removeMenuItem = async (itemId) => {
     try {
-      const { error } = await supabase
-        .from('menu_items')
-        .delete()
-        .eq('id', itemId);
+      const { error } = await supabase.from('menu_items').delete().eq('id', itemId);
       if (error) throw error;
-      setMenuItems(menuItems.filter(item => item.id !== itemId));
+      setMenuItems(menuItems.filter((item) => item.id !== itemId));
     } catch (err) {
       setError(`Failed to remove item: ${err.message}`);
     }
@@ -442,9 +438,9 @@ export default function Admin() {
         .update({ is_available: !currentStatus })
         .eq('id', itemId);
       if (error) throw error;
-      setMenuItems(menuItems.map(item =>
-        item.id === itemId ? { ...item, is_available: !currentStatus } : item
-      ));
+      setMenuItems((prev) =>
+        prev.map((item) => (item.id === itemId ? { ...item, is_available: !currentStatus } : item))
+      );
     } catch (err) {
       setError(`Failed to update availability: ${err.message}`);
     }
@@ -458,14 +454,10 @@ export default function Admin() {
     try {
       const fileExt = file.name.split('.').pop();
       const fileName = `item_${itemId}_${Date.now()}.${fileExt}`;
-      const { error: uploadError } = await supabase.storage
-        .from('menu-images')
-        .upload(fileName, file);
+      const { error: uploadError } = await supabase.storage.from('menu-images').upload(fileName, file);
       if (uploadError) throw uploadError;
 
-      const { data: urlData } = supabase.storage
-        .from('menu-images')
-        .getPublicUrl(fileName);
+      const { data: urlData } = supabase.storage.from('menu-images').getPublicUrl(fileName);
       if (!urlData.publicUrl) throw new Error('Failed to get public URL');
 
       const { error: updateError } = await supabase
@@ -474,9 +466,9 @@ export default function Admin() {
         .eq('id', itemId);
       if (updateError) throw updateError;
 
-      setMenuItems(menuItems.map(item =>
-        item.id === itemId ? { ...item, image_url: urlData.publicUrl } : item
-      ));
+      setMenuItems((prev) =>
+        prev.map((item) => (item.id === itemId ? { ...item, image_url: urlData.publicUrl } : item))
+      );
     } catch (err) {
       setError(`Failed to upload image: ${err.message}`);
     }
@@ -486,9 +478,7 @@ export default function Admin() {
     if (!imageUrl) return;
     try {
       const fileName = imageUrl.split('/').pop();
-      const { error: deleteError } = await supabase.storage
-        .from('menu-images')
-        .remove([fileName]);
+      const { error: deleteError } = await supabase.storage.from('menu-images').remove([fileName]);
       if (deleteError) throw deleteError;
 
       const { error: updateError } = await supabase
@@ -497,9 +487,7 @@ export default function Admin() {
         .eq('id', itemId);
       if (updateError) throw updateError;
 
-      setMenuItems(menuItems.map(item =>
-        item.id === itemId ? { ...item, image_url: null } : item
-      ));
+      setMenuItems((prev) => prev.map((item) => (item.id === itemId ? { ...item, image_url: null } : item)));
     } catch (err) {
       setError(`Failed to delete image: ${err.message}`);
     }
@@ -512,7 +500,7 @@ export default function Admin() {
       return;
     }
 
-    const total = order.items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0);
+    const total = order.items.reduce((sum, item) => sum + (item.price || 0) * (item.quantity || 1), 0);
     const formattedDate = formatToIST(new Date(order.created_at));
 
     printWindow.document.write(`
@@ -533,7 +521,7 @@ export default function Admin() {
               width: 300px;
               padding: 10px;
               margin: 0 auto;
-              background: #fff;
+              background: white;
             }
             .header {
               text-align: center;
@@ -555,13 +543,12 @@ export default function Admin() {
               width: 100%;
               border-collapse: collapse;
             }
-            th, td {
+            th,
+            td {
               padding: 5px 0;
             }
-            th {
-              text-align: left;
-            }
-            th.right, td.right {
+            th.right,
+            td.right {
               text-align: right;
             }
             .total {
@@ -578,7 +565,8 @@ export default function Admin() {
               body * {
                 visibility: hidden;
               }
-              .receipt, .receipt * {
+              .receipt,
+              .receipt * {
                 visibility: visible;
               }
               .receipt {
@@ -601,7 +589,7 @@ export default function Admin() {
             <div class="header">
               <h1>Gsaheb Cafe</h1>
               <p>Order #${order.order_number || order.id}</p>
-              <p>Table ${order.tables?.number || order.table_id}</p>
+              <p>Table ${order.tables?.number || order.table_id || 'N/A'}</p>
               <p>Date: ${formattedDate}</p>
               <p>Payment Method: ${order.payment_type || 'N/A'}</p>
             </div>
@@ -615,13 +603,17 @@ export default function Admin() {
                 </tr>
               </thead>
               <tbody>
-                ${order.items.map(item => `
+                ${order.items
+                  .map(
+                    (item) => `
                   <tr>
-                    <td style="max-width: 180px; word-break: break-word;">${item.name}</td>
+                    <td style="max-width: 180px; word-break: break-word;">${item.name || 'N/A'}</td>
                     <td class="right">${item.quantity || 1}</td>
-                    <td class="right">₹${(item.price * (item.quantity || 1)).toFixed(2)}</td>
+                    <td class="right">₹${((item.price || 0) * (item.quantity || 1)).toFixed(2)}</td>
                   </tr>
-                `).join('')}
+                `
+                  )
+                  .join('')}
               </tbody>
             </table>
             <div class="divider"></div>
@@ -650,36 +642,118 @@ export default function Admin() {
     printWindow.document.close();
   };
 
+  const getAnalytics = () => {
+    console.log('Computing analytics with paidOrders:', paidOrders);
+    const today = formatToISTDateForComparison(new Date());
+    const todaysOrders = (paidOrders || []).filter((order) => {
+      try {
+        return formatToISTDateForComparison(new Date(order.created_at)) === today;
+      } catch (e) {
+        console.warn('Invalid order date:', order.created_at);
+        return false;
+      }
+    });
+    console.log("Today's orders:", todaysOrders);
+
+    const totalOrders = todaysOrders.length;
+    const totalRevenue = todaysOrders.reduce((sum, order) => {
+      try {
+        return sum + order.items.reduce((s, item) => s + (item.price || 0) * (item.quantity || 1), 0);
+      } catch (e) {
+        console.warn('Error processing order items:', order);
+        return sum;
+      }
+    }, 0);
+    const itemCounts = {};
+    todaysOrders.forEach((order) => {
+      try {
+        order.items.forEach((item) => {
+          itemCounts[item.name] = (itemCounts[item.name] || 0) + (item.quantity || 1);
+        });
+      } catch (e) {
+        console.warn('Error counting items:', order);
+      }
+    });
+    const mostSoldItem = Object.entries(itemCounts).sort((a, b) => b[1] - a[1])[0] || ['N/A', 0];
+    const ordersByHour = Array(24).fill(0);
+    todaysOrders.forEach((order) => {
+      try {
+        const hour = parseInt(formatToISTHourOnly(new Date(order.created_at)));
+        if (!isNaN(hour)) ordersByHour[hour]++;
+      } catch (e) {
+        console.warn('Error processing order hour:', order);
+      }
+    });
+    const peakHour = ordersByHour.indexOf(Math.max(...ordersByHour));
+    const totalItemsSold = todaysOrders.reduce((sum, order) => {
+      try {
+        return sum + order.items.reduce((s, item) => s + (item.quantity || 1), 0);
+      } catch (e) {
+        console.warn('Error summing items:', order);
+        return sum;
+      }
+    }, 0);
+    const aov = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+
+    const analytics = {
+      totalOrders,
+      totalRevenue,
+      mostSoldItem,
+      peakHour: peakHour === -1 ? 'N/A' : `${peakHour}:00`,
+      totalItemsSold,
+      aov,
+    };
+    console.log('Computed analytics:', analytics);
+    return analytics;
+  };
+
+  const analytics = getAnalytics();
+
   const exportOrders = () => {
     const startDate = new Date(exportFilters.startDate.setHours(0, 0, 0, 0)).toISOString();
     const endDate = new Date(exportFilters.endDate.setHours(23, 59, 59, 999)).toISOString();
-    const filteredOrders = historyOrders.filter(order => {
-      const orderDate = new Date(order.created_at).toISOString();
-      const matchesDate = orderDate >= startDate && orderDate <= endDate;
-      const matchesStatus = exportFilters.statuses.length ? exportFilters.statuses.includes(order.status) : true;
-      return matchesDate && matchesStatus;
+    const filteredOrders = historyOrders.filter((order) => {
+      try {
+        const orderDate = new Date(order.created_at).toISOString();
+        const matchesDate = orderDate >= startDate && orderDate <= endDate;
+        const matchesStatus = exportFilters.statuses.length ? exportFilters.statuses.includes(order.status) : true;
+        return matchesDate && matchesStatus;
+      } catch (e) {
+        console.warn('Error filtering order:', order);
+        return false;
+      }
     });
     let csv;
     if (exportType === 'order') {
       csv = [
         'Order ID,Date,Time,Table Number,Status,Total Amount,Items,Payment Method',
-        ...filteredOrders.map(order => {
-          const total = order.items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0);
-          const date = formatToISTDateOnly(new Date(order.created_at));
-          const time = formatToIST(new Date(order.created_at)).split(' ')[1];
-          const items = order.items.map(item => `${item.name} x${item.quantity || 1}`).join(', ');
-          return `${order.order_number || order.id},${date},${time},${order.tables?.number || order.table_id},${order.status},${total.toFixed(2)},${items},${order.payment_type || 'N/A'}`;
-        }),
+        ...filteredOrders.map((order) => {
+          try {
+            const total = order.items.reduce((sum, item) => sum + (item.price || 0) * (item.quantity || 1), 0);
+            const date = formatToISTDateOnly(new Date(order.created_at));
+            const time = formatToIST(new Date(order.created_at)).split(' ')[1];
+            const items = order.items.map((item) => `${item.name} x${item.quantity || 1}`).join(', ');
+            return `${order.order_number || order.id},${date},${time},${order.tables?.number || order.table_id || 'N/A'},${order.status},${total.toFixed(2)},${items},${order.payment_type || 'N/A'}`;
+          } catch (e) {
+            console.warn('Error exporting order:', order);
+            return '';
+          }
+        }).filter((line) => line),
       ];
     } else {
       csv = [
         'Order ID,Date,Item Name,Quantity,Unit Price,Total Price,Status,Table Number,Payment Method',
-        ...filteredOrders.flatMap(order => {
-          const date = formatToISTDateOnly(new Date(order.created_at));
-          return order.items.map(item => {
-            const totalPrice = (item.price * (item.quantity || 1)).toFixed(2);
-            return `${order.order_number || order.id},${date},${item.name},${item.quantity || 1},${item.price.toFixed(2)},${totalPrice},${order.status},${order.tables?.number || order.table_id},${order.payment_type || 'N/A'}`;
-          });
+        ...filteredOrders.flatMap((order) => {
+          try {
+            const date = formatToISTDateOnly(new Date(order.created_at));
+            return order.items.map((item) => {
+              const totalPrice = ((item.price || 0) * (item.quantity || 1)).toFixed(2);
+              return `${order.order_number || order.id},${date},${item.name || 'N/A'},${item.quantity || 1},${(item.price || 0).toFixed(2)},${totalPrice},${order.status},${order.tables?.number || order.table_id || 'N/A'},${order.payment_type || 'N/A'}`;
+            });
+          } catch (e) {
+            console.warn('Error exporting itemized order:', order);
+            return [];
+          }
         }),
       ];
     }
@@ -697,7 +771,7 @@ export default function Admin() {
     <div>
       <label className="block text-sm font-medium mb-1">{label}</label>
       <div className="border rounded-lg p-3 bg-gray-50">
-        {['pending', 'paid'].map(status => (
+        {['pending', 'paid'].map((status) => (
           <label key={status} className="flex items-center mb-2">
             <input
               type="checkbox"
@@ -706,11 +780,10 @@ export default function Admin() {
               onChange={(e) => {
                 const newStatuses = e.target.checked
                   ? [...statuses, status]
-                  : statuses.filter(s => s !== status);
+                  : statuses.filter((s) => s !== status);
                 onChange(newStatuses);
               }}
               className="mr-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-              aria-label={`Filter by ${status} status`}
             />
             <span className={`capitalize ${status === 'paid' ? 'text-green-600' : 'text-yellow-600'}`}>
               {status}
@@ -726,7 +799,11 @@ export default function Admin() {
       <div className="min-h-screen flex items-center justify-center bg-gray-100">
         <div className="bg-white p-8 rounded-lg shadow-lg max-w-md w-full">
           <h1 className="text-2xl font-bold mb-6 text-center">Admin Login</h1>
-          {error && <p className="text-red-500 mb-4 text-center" role="alert">{error}</p>}
+          {error && (
+            <p className="text-red-500 mb-4 text-center" role="alert">
+              {error}
+            </p>
+          )}
           <input
             type="email"
             placeholder="Email"
@@ -760,7 +837,7 @@ export default function Admin() {
       <div className="w-64 bg-white shadow-lg p-4 fixed h-full">
         <h1 className="text-2xl font-bold mb-8 text-gray-800">Gsaheb Cafe Admin</h1>
         <nav>
-          {['Pending Orders', 'Order History', 'Menu Management', 'Data Analytics'].map(tab => (
+          {['Pending Orders', 'Order History', 'Menu Management', 'Data Analytics'].map((tab) => (
             <button
               key={tab}
               className={`w-full text-left py-3 px-4 mb-2 rounded-lg flex items-center gap-2 ${
@@ -799,9 +876,12 @@ export default function Admin() {
             {orders.length === 0 ? (
               <p className="text-gray-500 text-center">No pending orders</p>
             ) : (
-              <div className="grid gap-6">
-                {orders.map(order => {
-                  const total = order.items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0);
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {orders.map((order) => {
+                  const total = order.items.reduce(
+                    (sum, item) => sum + (item.price || 0) * (item.quantity || 1),
+                    0
+                  );
                   const formattedDate = formatToIST(new Date(order.created_at));
                   return (
                     <div key={order.id} className="bg-white p-6 rounded-lg shadow-md">
@@ -809,7 +889,9 @@ export default function Admin() {
                         <div>
                           <h3 className="text-lg font-semibold">Order #{order.order_number || order.id}</h3>
                           <p className="text-sm text-gray-500">{formattedDate}</p>
-                          <p className="text-sm text-gray-500">Table {order.tables?.number || order.table_id}</p>
+                          <p className="text-sm text-gray-500">
+                            Table {order.tables?.number || order.table_id || 'N/A'}
+                          </p>
                         </div>
                         <div className="flex gap-2">
                           <button
@@ -848,9 +930,11 @@ export default function Admin() {
                         <tbody>
                           {order.items.map((item, index) => (
                             <tr key={index}>
-                              <td className="py-2">{item.name}</td>
+                              <td className="py-2">{item.name || 'N/A'}</td>
                               <td className="text-right py-2">{item.quantity || 1}</td>
-                              <td className="text-right py-2">₹{(item.price * (item.quantity || 1)).toFixed(2)}</td>
+                              <td className="text-right py-2">
+                                ₹{((item.price || 0) * (item.quantity || 1)).toFixed(2)}
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -869,12 +953,12 @@ export default function Admin() {
 
         {showPaymentModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-            <div className="bg-white p-6 rounded-lg max-w-md w-full">
-              <h3 className="text-xl font-bold mb-4">Select Payment Method</h3>
+              <div className="bg-white p-6 rounded-lg max-w-2xl w-full">
+              <h3 className="text-xl font-semibold mb-4">Select Payment Method</h3>
               <select
-                className="border p-2 w-full rounded-lg mb-4"
                 value={paymentType}
                 onChange={(e) => setPaymentType(e.target.value)}
+                className="border p-2 w-full rounded-md mb-4"
                 aria-label="Select payment method"
               >
                 <option value="">Select Payment Method</option>
@@ -883,9 +967,9 @@ export default function Admin() {
                 <option value="Bank">Bank</option>
                 <option value="Card">Card</option>
               </select>
-              <div className="flex justify-end gap-2">
+              <div className="flex justify-end gap-4">
                 <button
-                  className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600"
+                  className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 transition"
                   onClick={() => {
                     setShowPaymentModal(false);
                     setSelectedOrderId(null);
@@ -896,7 +980,7 @@ export default function Admin() {
                   Cancel
                 </button>
                 <button
-                  className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700"
+                  className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition"
                   onClick={markAsPaid}
                   aria-label="Confirm payment"
                 >
@@ -910,7 +994,9 @@ export default function Admin() {
         {editingOrder && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
             <div className="bg-white p-6 rounded-lg max-w-2xl w-full">
-              <h3 className="text-xl font-bold mb-4">Edit Order #{editingOrder.order_number || editingOrder.id}</h3>
+              <h3 className="text-xl font-semibold mb-6">
+                Edit Order #{editingOrder.order_number || editingOrder.id}
+              </h3>
               <table className="w-full mb-4">
                 <thead>
                   <tr className="border-b">
@@ -923,11 +1009,11 @@ export default function Admin() {
                 <tbody>
                   {editedItems.map((item, index) => (
                     <tr key={index}>
-                      <td className="py-2">{item.name}</td>
+                      <td className="py-2">{item.name || 'N/A'}</td>
                       <td className="text-right py-2">
                         <div className="flex items-center justify-end gap-2">
                           <button
-                            className="bg-gray-200 px-2 py-1 rounded"
+                            className="bg-gray-200 text-gray-800 px-3 py-1 rounded hover:bg-gray-300"
                             onClick={() => updateQuantity(index, -1)}
                             aria-label={`Decrease quantity for ${item.name}`}
                           >
@@ -935,7 +1021,7 @@ export default function Admin() {
                           </button>
                           <span>{item.quantity || 1}</span>
                           <button
-                            className="bg-gray-200 px-2 py-1 rounded"
+                            className="bg-gray-200 text-gray-800 px-3 py-1 rounded hover:bg-gray-300"
                             onClick={() => updateQuantity(index, 1)}
                             aria-label={`Increase quantity for ${item.name}`}
                           >
@@ -943,12 +1029,14 @@ export default function Admin() {
                           </button>
                         </div>
                       </td>
-                      <td className="text-right py-2">₹{(item.price * (item.quantity || 1)).toFixed(2)}</td>
+                      <td className="text-right py-2">
+                        ₹{((item.price || 0) * (item.quantity || 1)).toFixed(2)}
+                      </td>
                       <td className="text-center py-2">
                         <button
                           className="text-red-600 hover:text-red-800"
                           onClick={() => removeItem(index)}
-                          aria-label={`Remove ${item.name}`}
+                          aria-label={`Remove item ${item.name}`}
                         >
                           <TrashIcon className="h-5 w-5" />
                         </button>
@@ -960,27 +1048,31 @@ export default function Admin() {
               <div className="mb-4">
                 <label className="block text-sm font-medium mb-1">Add Item</label>
                 <select
-                  className="border p-2 w-full rounded-lg"
+                  className="border p-2 w-full rounded-md"
                   onChange={(e) => addItem(Number(e.target.value))}
                   value=""
                   aria-label="Add item to order"
                 >
                   <option value="">Select item</option>
-                  {menuItems.filter(item => item.is_available).map(item => (
-                    <option key={item.id} value={item.id}>{item.name} (₹{item.price.toFixed(2)})</option>
-                  ))}
+                  {menuItems
+                    .filter((item) => item.is_available)
+                    .map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name} (₹{(item.price || 0).toFixed(2)})
+                      </option>
+                    ))}
                 </select>
               </div>
-              <div className="flex justify-end gap-2">
+              <div className="flex justify-end gap-4">
                 <button
-                  className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600"
+                  className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 transition"
                   onClick={cancelEdit}
                   aria-label="Cancel edit"
                 >
                   Cancel
                 </button>
                 <button
-                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+                  className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition"
                   onClick={saveOrder}
                   aria-label="Save order changes"
                 >
@@ -993,16 +1085,18 @@ export default function Admin() {
 
         {activeTab === 'Order History' && (
           <div>
-            <h2 className="text-2xl font-bold text-gray-800 mb-6">Order History</h2>
+            <h2 className="text-2xl font-semibold text-gray-800 mb-6">Order History</h2>
             <div className="bg-white p-6 rounded-lg shadow-md mb-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">Date Range</label>
                   <select
-                    className="border p-2 w-full rounded-lg"
+                    className="border p-2 w-full rounded-md"
                     value={historyFilters.dateRange}
-                    onChange={(e) => setHistoryFilters({ ...historyFilters, dateRange: e.target.value, page: 1 })}
-                    aria-label="Date range filter"
+                    onChange={(e) =>
+                      setHistoryFilters({ ...historyFilters, dateRange: e.target.value, page: 1 })
+                    }
+                    aria-label="Select date range"
                   >
                     <option value="today">Today</option>
                     <option value="yesterday">Yesterday</option>
@@ -1013,15 +1107,19 @@ export default function Admin() {
                     <div className="mt-2 flex gap-2">
                       <DatePicker
                         selected={historyFilters.customStart}
-                        onChange={date => setHistoryFilters({ ...historyFilters, customStart: date, page: 1 })}
-                        className="border p-2 rounded-lg w-full"
-                        aria-label="Custom start date"
+                        onChange={(date) =>
+                          setHistoryFilters({ ...historyFilters, customStart: date, page: 1 })
+                        }
+                        className="border p-2 rounded-md w-full"
+                        aria-label="Select start date"
                       />
                       <DatePicker
                         selected={historyFilters.customEnd}
-                        onChange={date => setHistoryFilters({ ...historyFilters, customEnd: date, page: 1 })}
-                        className="border p-2 rounded-lg w-full"
-                        aria-label="Custom end date"
+                        onChange={(date) =>
+                          setHistoryFilters({ ...historyFilters, customEnd: date, page: 1 })
+                        }
+                        className="border p-2 rounded-md w-full"
+                        aria-label="Select end date"
                       />
                     </div>
                   )}
@@ -1029,7 +1127,9 @@ export default function Admin() {
                 <StatusFilter
                   label="Status"
                   statuses={historyFilters.statuses}
-                  onChange={(newStatuses) => setHistoryFilters({ ...historyFilters, statuses: newStatuses, page: 1 })}
+                  onChange={(newStatuses) =>
+                    setHistoryFilters({ ...historyFilters, statuses: newStatuses, page: 1 })
+                  }
                 />
               </div>
             </div>
@@ -1050,38 +1150,43 @@ export default function Admin() {
                     </tr>
                   </thead>
                   <tbody>
-                    {historyOrders.slice(
-                      (historyFilters.page - 1) * historyFilters.perPage,
-                      historyFilters.page * historyFilters.perPage
-                    ).map(order => {
-                      const total = order.items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0);
-                      return (
-                        <tr key={order.id} className="border-b">
-                          <td className="py-3 px-4">{order.order_number || order.id}</td>
-                          <td className="py-3 px-4">{formatToIST(new Date(order.created_at))}</td>
-                          <td className="py-3 px-4">{order.tables?.number || order.table_id}</td>
-                          <td className="text-right py-3 px-4">₹{total.toFixed(2)}</td>
-                          <td className="py-3 px-4">{order.status}</td>
-                          <td className="py-3 px-4">{order.payment_type || 'N/A'}</td>
-                          <td className="text-center py-3 px-4 flex gap-2 justify-center">
-                            <button
-                              className="text-blue-600 hover:text-blue-800"
-                              onClick={() => setViewingOrder(order)}
-                              aria-label={`View invoice for order ${order.order_number || order.id}`}
-                            >
-                              View
-                            </button>
-                            <button
-                              className="text-gray-600 hover:text-gray-800"
-                              onClick={() => printBill(order)}
-                              aria-label={`Print invoice for order ${order.order_number || order.id}`}
-                            >
-                              <PrinterIcon className="h-5 w-5" />
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
+                    {historyOrders
+                      .slice(
+                        (historyFilters.page - 1) * historyFilters.perPage,
+                        historyFilters.page * historyFilters.perPage
+                      )
+                      .map((order) => {
+                        const total = order.items.reduce(
+                          (sum, item) => sum + (item.price || 0) * (item.quantity || 1),
+                          0
+                        );
+                        return (
+                          <tr key={order.id} className="border-b">
+                            <td className="py-3 px-4">{order.order_number || order.id}</td>
+                            <td className="py-3 px-4">{formatToIST(new Date(order.created_at))}</td>
+                            <td className="py-3 px-4">{order.tables?.number || order.table_id || 'N/A'}</td>
+                            <td className="text-right py-3 px-4">₹{total.toFixed(2)}</td>
+                            <td className="py-3 px-4">{order.status}</td>
+                            <td className="py-3 px-4">{order.payment_type || 'N/A'}</td>
+                            <td className="text-center py-3 px-4 flex gap-2 justify-center">
+                              <button
+                                className="text-blue-600 hover:text-blue-800"
+                                onClick={() => setViewingOrder(order)}
+                                aria-label={`View invoice for order ${order.order_number || order.id}`}
+                              >
+                                View
+                              </button>
+                              <button
+                                className="text-gray-600 hover:text-gray-800"
+                                onClick={() => printBill(order)}
+                                aria-label={`Print invoice for order ${order.order_number || order.id}`}
+                              >
+                                <PrinterIcon className="h-5 w-5" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                   </tbody>
                 </table>
                 <div className="flex justify-between items-center mt-4">
@@ -1093,7 +1198,9 @@ export default function Admin() {
                   >
                     Previous
                   </button>
-                  <span>Page {historyFilters.page} of {Math.ceil(historyOrders.length / historyFilters.perPage)}</span>
+                  <span>
+                    Page {historyFilters.page} of {Math.ceil(historyOrders.length / historyFilters.perPage)}
+                  </span>
                   <button
                     className="bg-gray-500 text-white px-4 py-2 rounded-lg disabled:opacity-50"
                     onClick={() => setHistoryFilters({ ...historyFilters, page: historyFilters.page + 1 })}
@@ -1111,9 +1218,13 @@ export default function Admin() {
         {viewingOrder && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
             <div className="bg-white p-6 rounded-lg max-w-2xl w-full">
-              <h3 className="text-xl font-bold mb-4">Invoice #{viewingOrder.order_number || viewingOrder.id}</h3>
+              <h3 className="text-xl font-semibold mb-4">
+                Invoice #{viewingOrder.order_number || viewingOrder.id}
+              </h3>
               <p className="text-sm text-gray-500 mb-2">{formatToIST(new Date(viewingOrder.created_at))}</p>
-              <p className="text-sm text-gray-500 mb-2">Table {viewingOrder.tables?.number || viewingOrder.table_id}</p>
+              <p className="text-sm text-gray-500 mb-2">
+                Table {viewingOrder.tables?.number || viewingOrder.table_id || 'N/A'}
+              </p>
               <p className="text-sm text-gray-500 mb-4">Payment Method: {viewingOrder.payment_type || 'N/A'}</p>
               <table className="w-full mb-4">
                 <thead>
@@ -1126,27 +1237,29 @@ export default function Admin() {
                 <tbody>
                   {viewingOrder.items.map((item, index) => (
                     <tr key={index}>
-                      <td className="py-2">{item.name}</td>
+                      <td className="py-2">{item.name || 'N/A'}</td>
                       <td className="text-right py-2">{item.quantity || 1}</td>
-                      <td className="text-right py-2">₹{(item.price * (item.quantity || 1)).toFixed(2)}</td>
+                      <td className="text-right py-2">
+                        ₹{((item.price || 0) * (item.quantity || 1)).toFixed(2)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
               <div className="flex justify-between font-semibold mb-4">
                 <span>Total</span>
-                <span>₹{viewingOrder.items.reduce((sum, item) => sum + (item.price * (item.quantity || 1)), 0).toFixed(2)}</span>
+                <span>₹{viewingOrder.items.reduce((sum, item) => sum + ((item.price || 0) * (item.quantity || 1)), 0).toFixed(2)}</span>
               </div>
-              <div className="flex justify-end gap-2">
+              <div className="flex justify-end gap-4">
                 <button
-                  className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600"
+                  className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 transition"
                   onClick={() => setViewingOrder(null)}
                   aria-label="Close invoice"
                 >
                   Close
                 </button>
                 <button
-                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                  className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition flex items-center gap-2"
                   onClick={() => printBill(viewingOrder)}
                   aria-label={`Print invoice for ${viewingOrder.order_number || viewingOrder.id}`}
                 >
@@ -1170,8 +1283,8 @@ export default function Admin() {
                     type="text"
                     value={newItem.name}
                     onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
-                    className="border p-2 rounded-lg w-full"
-                    aria-label="Item name"
+                    className="border p-2 rounded-md w-full"
+                    aria-label="Item name input"
                   />
                 </div>
                 <div>
@@ -1180,8 +1293,8 @@ export default function Admin() {
                     type="text"
                     value={newItem.category}
                     onChange={(e) => setNewItem({ ...newItem, category: e.target.value })}
-                    className="border p-2 rounded-lg w-full"
-                    aria-label="Item category"
+                    className="border p-2 rounded-md w-full"
+                    aria-label="Item category input"
                   />
                 </div>
                 <div>
@@ -1190,8 +1303,8 @@ export default function Admin() {
                     type="number"
                     value={newItem.price}
                     onChange={(e) => setNewItem({ ...newItem, price: e.target.value })}
-                    className="border p-2 rounded-lg w-full"
-                    aria-label="Item price"
+                    className="border p-2 rounded-md w-full"
+                    aria-label="Item price input"
                   />
                 </div>
                 <div className="flex items-center">
@@ -1201,14 +1314,14 @@ export default function Admin() {
                       checked={newItem.is_available}
                       onChange={(e) => setNewItem({ ...newItem, is_available: e.target.checked })}
                       className="mr-2"
-                      aria-label="Item availability"
+                      aria-label="Item availability checkbox"
                     />
                     Available
                   </label>
                 </div>
               </div>
               <button
-                className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+                className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
                 onClick={addMenuItem}
                 aria-label="Add menu item"
               >
@@ -1228,47 +1341,46 @@ export default function Admin() {
                 </tr>
               </thead>
               <tbody>
-                {menuItems.map(item => (
+                {menuItems.map((item) => (
                   <tr key={item.id} className="border-b">
-                    <td className="py-3 px-4">{item.name}</td>
-                    <td className="py-3 px-4">{item.category || '-'}</td>
-                    <td className="text-right py-3 px-4">₹{item.price.toFixed(2)}</td>
+                    <td className="py-3 px-4">{item.name || 'N/A'}</td>
+                    <td className="py-3 px-4">{item.category || 'N/A'}</td>
+                    <td className="text-right py-3 px-4">₹{(item.price || 0).toFixed(2)}</td>
                     <td className="text-center py-3 px-4">
                       {item.is_available ? (
-                        <CheckCircleIcon className="h-5 w-5 text-green-500 mx-auto" />
+                        <CheckCircleIcon className="h-5 w-5 text-green-600 mx-auto" />
                       ) : (
-                        <XCircleIcon className="h-5 w-5 text-red-500 mx-auto" />
+                        <XCircleIcon className="h-5 w-5 text-red-600 mx-auto" />
                       )}
                     </td>
                     <td className="text-center py-3 px-4">
                       {item.image_url ? (
                         <img
                           src={item.image_url}
-                          alt={item.name}
-                          className="w-16 h-16 object-cover rounded mx-auto"
+                          alt={item.name || 'Menu item'}
+                          className="h-16 w-16 object-cover rounded-md mx-auto"
                         />
                       ) : (
-                        <span className="text-gray-500">-</span>
+                        <span className="text-gray-500">No Image</span>
                       )}
                     </td>
                     <td className="text-center py-3 px-4 flex gap-2 justify-center">
-                      <label className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 cursor-pointer">
+                      <label className="bg-blue-600 text-white px-2 py-1 rounded-md hover:bg-blue-700 cursor-pointer">
                         <input
                           type="file"
                           accept="image/*"
                           className="hidden"
                           onChange={(e) => uploadImage(item.id, e.target.files[0])}
-                          aria-label={`Upload image for ${item.name}`}
                         />
-                        Upload
+                        Upload Image
                       </label>
                       <button
-                        className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700"
+                        className="bg-red-600 text-white px-2 py-1 rounded-md hover:bg-red-700 transition"
                         onClick={() => deleteImage(item.id, item.image_url)}
                         disabled={!item.image_url}
                         aria-label={`Delete image for ${item.name}`}
                       >
-                        Delete
+                        Delete Image
                       </button>
                       <button
                         className="text-blue-600 hover:text-blue-800"
@@ -1295,92 +1407,100 @@ export default function Admin() {
         {activeTab === 'Data Analytics' && (
           <div>
             <h2 className="text-2xl font-bold text-gray-800 mb-6">Analytics</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-              <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
-                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Total Orders</h3>
-                <p className="text-2xl font-bold">{totalOrders}</p>
-              </div>
-              <div className="bg-gradient-to-r from-green-500 to-green-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
-                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Total Revenue</h3>
-                <p className="text-2xl font-bold">₹{totalRevenue.toFixed(2)}</p>
-              </div>
-              <div className="bg-gradient-to-r from-purple-500 to-purple-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
-                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Most Sold Item</h3>
-                <p className="text-2xl font-bold">{mostSoldItem.name}</p>
-                <p className="text-sm">{mostSoldItem.totalSold} units</p>
-              </div>
-              <div className="bg-gradient-to-r from-orange-500 to-orange-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
-                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Peak Hour</h3>
-                <p className="text-2xl font-bold">{peakHour}</p>
-              </div>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-              <div className="bg-gradient-to-r from-teal-500 to-teal-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
-                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Weekly Revenue</h3>
-                <p className="text-2xl font-bold">₹{weeklyRevenue.toFixed(2)}</p>
-              </div>
-              <div className="bg-gradient-to-r from-indigo-500 to-indigo-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
-                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Monthly Revenue</h3>
-                <p className="text-2xl font-bold">₹{monthlyRevenue.toFixed(2)}</p>
-              </div>
-              <div className="bg-gradient-to-r from-pink-500 to-pink-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
-                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Average Order Value</h3>
-                <p className="text-2xl font-bold">₹{averageOrderValue.toFixed(2)}</p>
-              </div>
-              <div className="bg-gradient-to-r from-yellow-500 to-yellow-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
-                <h3 className="text-lg font-semibold mb-2 flex items-center gap-2">Total Items Sold</h3>
-                <p className="text-2xl font-bold">{totalItemsSold}</p>
-              </div>
-            </div>
-            <div className="bg-white p-6 rounded-lg shadow-md">
-              <h3 className="text-lg font-semibold mb-4">Export Orders</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Export Type</label>
-                  <select
-                    className="border p-2 rounded-lg w-full"
-                    value={exportType}
-                    onChange={(e) => setExportType(e.target.value)}
-                    aria-label="Select export type"
+            {isLoadingAnalytics ? (
+              <p className="text-gray-500 text-center">Loading analytics data...</p>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+                  <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+                    <h3 className="text-lg font-semibold mb-2">Total Orders</h3>
+                    <p className="text-2xl font-bold">{analytics.totalOrders || 0}</p>
+                  </div>
+                  <div className="bg-gradient-to-r from-green-500 to-green-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+                    <h3 className="text-lg font-semibold mb-2">Total Revenue</h3>
+                    <p className="text-2xl font-bold">₹{(analytics.totalRevenue || 0).toFixed(2)}</p>
+                  </div>
+                  <div className="bg-gradient-to-r from-purple-500 to-purple-600 text-white text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+                    <h3 className="text-lg font-semibold mb-2">Most Sold Item</h3>
+                    <p className="text-2xl font-bold">{analytics.mostSoldItem[0]}</p>
+                    <p className="text-sm">{analytics.mostSoldItem[1]} units</p>
+                  </div>
+                  <div className="bg-gradient-to-r from-orange-500 to-orange-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+                    <h3 className="text-lg font-semibold mb-2">Peak Hour</h3>
+                    <p className="text-2xl font-bold">{analytics.peakHour}</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+                  <div className="bg-gradient-to-r from-teal-500 to-teal-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+                    <h3 className="text-lg font-semibold mb-2">Weekly Revenue</h3>
+                    <p className="text-2xl font-bold">₹{(weeklyRevenue || 0).toFixed(2)}</p>
+                  </div>
+                  <div className="bg-gradient-to-r from-indigo-500 to-indigo-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+                    <h3 className="text-lg font-semibold mb-2">Monthly Revenue</h3>
+                    <p className="text-2xl font-bold">₹{(monthlyRevenue || 0).toFixed(2)}</p>
+                  </div>
+                  <div className="bg-gradient-to-r from-pink-500 to-pink-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+                    <h3 className="text-lg font-semibold mb-2">Average Order Value</h3>
+                    <p className="text-2xl font-bold">₹{(analytics.aov || 0).toFixed(2)}</p>
+                  </div>
+                  <div className="bg-gradient-to-r from-yellow-500 to-yellow-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
+                    <h3 className="text-lg font-semibold mb-2">Total Items Sold</h3>
+                    <p className="text-2xl font-bold">{analytics.totalItemsSold || 0}</p>
+                  </div>
+                </div>
+                <div className="bg-white p-6 rounded-lg shadow-md">
+                  <h3 className="text-lg font-semibold mb-4">Export Orders</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Export Type</label>
+                      <select
+                        className="border p-2 w-full rounded-md"
+                        value={exportType}
+                        onChange={(e) => setExportType(e.target.value)}
+                        aria-label="Select export type"
+                      >
+                        <option value="order">Order Summary</option>
+                        <option value="items">Itemized</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Start Date</label>
+                      <DatePicker
+                        selected={exportFilters.startDate}
+                        onChange={(date) => setExportFilters({ ...exportFilters, startDate: date })}
+                        className="border p-2 rounded-md w-full"
+                        aria-label="Select start date for export"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">End Date</label>
+                      <DatePicker
+                        selected={exportFilters.endDate}
+                        onChange={(date) => setExportFilters({ ...exportFilters, endDate: date })}
+                        className="border p-2 rounded-md w-full"
+                        aria-label="Select end date for export"
+                      />
+                    </div>
+                  </div>
+                  <div className="mt-4">
+                    <StatusFilter
+                      label="Status"
+                      statuses={exportFilters.statuses}
+                      onChange={(newStatuses) =>
+                        setExportFilters({ ...exportFilters, statuses: newStatuses })
+                      }
+                    />
+                  </div>
+                  <button
+                    className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
+                    onClick={exportOrders}
+                    aria-label="Export orders"
                   >
-                    <option value="order">Order Summary</option>
-                    <option value="items">Itemized</option>
-                  </select>
+                    Export
+                  </button>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Start Date</label>
-                  <DatePicker
-                    selected={exportFilters.startDate}
-                    onChange={(date) => setExportFilters({ ...exportFilters, startDate: date })}
-                    className="border p-2 rounded-lg w-full"
-                    aria-label="Start date picker for export"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">End Date</label>
-                  <DatePicker
-                    selected={exportFilters.endDate}
-                    onChange={(date) => setExportFilters({ ...exportFilters, endDate: date })}
-                    className="border p-2 rounded-lg w-full"
-                    aria-label="End date picker for export"
-                  />
-                </div>
-              </div>
-              <div className="mt-4">
-                <StatusFilter
-                  label="Status"
-                  statuses={exportFilters.statuses}
-                  onChange={(newStatuses) => setExportFilters({ ...exportFilters, statuses: newStatuses })}
-                />
-              </div>
-              <button
-                className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
-                onClick={exportOrders}
-                aria-label="Export orders"
-              >
-                Export
-              </button>
-            </div>
+              </>
+            )}
           </div>
         )}
       </div>
