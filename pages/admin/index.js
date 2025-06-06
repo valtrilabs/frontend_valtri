@@ -52,7 +52,7 @@ export default function Admin() {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedOrderId, setSelectedOrderId] = useState(null);
   const [paymentType, setPaymentType] = useState('');
-  const [isLoadingAnalytics, setIsLoadingAnalytics] = useState(false);
+  const [isLoadingPaidOrders, setIsLoadingPaidOrders] = useState(false);
 
   useEffect(() => {
     localStorage.setItem('activeTab', activeTab);
@@ -139,13 +139,14 @@ export default function Admin() {
   const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   async function fetchPaidOrders() {
-    setIsLoadingAnalytics(true);
+    setIsLoadingPaidOrders(true);
     const maxRetries = 3;
     let attempts = 0;
+    let lastValidData = paidOrders; // Preserve previous data
 
     while (attempts < maxRetries) {
       try {
-        console.log(`Fetching paid orders, attempt ${attempts + 1}`);
+        console.log(`Fetching paid orders, attempt ${attempts + 1}/${maxRetries}`);
         const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || '';
         const todayStart = new Date();
         todayStart.setHours(0, 0, 0, 0);
@@ -161,22 +162,28 @@ export default function Admin() {
         });
         if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         const data = await response.json();
-        console.log('Paid orders response:', data);
+        console.log('Paid orders fetch successful:', data);
         if (!Array.isArray(data)) {
           console.warn('Received non-array data for paid orders:', data);
           throw new Error('Invalid data format');
         }
-        setPaidOrders(data);
-        console.log(`Set paid orders: ${data.length} orders`);
-        setIsLoadingAnalytics(false);
+        // Only update if data is non-empty; otherwise, preserve last valid data
+        if (data.length > 0) {
+          setPaidOrders(data);
+          lastValidData = data;
+        } else {
+          console.warn('Empty data received, preserving previous paidOrders');
+        }
+        setIsLoadingPaidOrders(false);
         return;
       } catch (err) {
         attempts++;
-        console.error(`Failed to fetch paid orders (attempt ${attempts}): ${err.message}`);
+        console.error(`Failed to fetch paid orders (attempt ${attempts}/${maxRetries}): ${err.message}`);
         if (attempts === maxRetries) {
+          console.error(`All ${maxRetries} attempts failed, using last valid data`);
+          setPaidOrders(lastValidData);
           setError(`Failed to fetch paid orders after ${maxRetries} attempts: ${err.message}`);
-          setPaidOrders([]);
-          setIsLoadingAnalytics(false);
+          setIsLoadingPaidOrders(false);
           return;
         }
         await delay(1000);
@@ -655,15 +662,17 @@ export default function Admin() {
     });
     console.log("Today's orders:", todaysOrders);
 
-    const totalOrders = todaysOrders.length;
-    const totalRevenue = todaysOrders.reduce((sum, order) => {
-      try {
-        return sum + order.items.reduce((s, item) => s + (item.price || 0) * (item.quantity || 1), 0);
-      } catch (e) {
-        console.warn('Error processing order items:', order);
-        return sum;
-      }
-    }, 0);
+    const totalOrders = todaysOrders.length || 0;
+    const totalRevenue = todaysOrders.length
+      ? todaysOrders.reduce((sum, order) => {
+          try {
+            return sum + order.items.reduce((s, item) => s + (item.price || 0) * (item.quantity || 1), 0);
+          } catch (e) {
+            console.warn('Error processing order items:', order);
+            return sum;
+          }
+        }, 0)
+      : 0;
     const itemCounts = {};
     todaysOrders.forEach((order) => {
       try {
@@ -674,7 +683,9 @@ export default function Admin() {
         console.warn('Error counting items:', order);
       }
     });
-    const mostSoldItem = Object.entries(itemCounts).sort((a, b) => b[1] - a[1])[0] || ['N/A', 0];
+    const mostSoldItem = Object.keys(itemCounts).length > 0
+      ? Object.entries(itemCounts).sort((a, b) => b[1] - a[1])[0] || ['N/A', 0]
+      : ['N/A', 0];
     const ordersByHour = Array(24).fill(0);
     todaysOrders.forEach((order) => {
       try {
@@ -684,15 +695,19 @@ export default function Admin() {
         console.warn('Error processing order hour:', order);
       }
     });
-    const peakHour = ordersByHour.indexOf(Math.max(...ordersByHour));
-    const totalItemsSold = todaysOrders.reduce((sum, order) => {
-      try {
-        return sum + order.items.reduce((s, item) => s + (item.quantity || 1), 0);
-      } catch (e) {
-        console.warn('Error summing items:', order);
-        return sum;
-      }
-    }, 0);
+    const peakHour = ordersByHour.some(count => count > 0)
+      ? ordersByHour.indexOf(Math.max(...ordersByHour))
+      : -1;
+    const totalItemsSold = todaysOrders.length
+      ? todaysOrders.reduce((sum, order) => {
+          try {
+            return sum + order.items.reduce((s, item) => s + (item.quantity || 1), 0);
+          } catch (e) {
+            console.warn('Error summing items:', order);
+            return sum;
+          }
+        }, 0)
+      : 0;
     const aov = totalOrders > 0 ? totalRevenue / totalOrders : 0;
 
     const analytics = {
@@ -1407,18 +1422,18 @@ export default function Admin() {
         {activeTab === 'Data Analytics' && (
           <div>
             <h2 className="text-2xl font-bold text-gray-800 mb-6">Analytics</h2>
-            {isLoadingAnalytics ? (
-              <p className="text-gray-500 text-center">Loading analytics data...</p>
+            {isLoadingPaidOrders ? (
+              <p className="text-gray-500 text-center">Loading analytics...</p>
             ) : (
               <>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
                   <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
                     <h3 className="text-lg font-semibold mb-2">Total Orders</h3>
-                    <p className="text-2xl font-bold">{analytics.totalOrders || 0}</p>
+                    <p className="text-2xl font-bold">{analytics.totalOrders}</p>
                   </div>
                   <div className="bg-gradient-to-r from-green-500 to-green-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
                     <h3 className="text-lg font-semibold mb-2">Total Revenue</h3>
-                    <p className="text-2xl font-bold">₹{(analytics.totalRevenue || 0).toFixed(2)}</p>
+                    <p className="text-2xl font-bold">₹{analytics.totalRevenue.toFixed(2)}</p>
                   </div>
                   <div className="bg-gradient-to-r from-purple-500 to-purple-600 text-white text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
                     <h3 className="text-lg font-semibold mb-2">Most Sold Item</h3>
@@ -1441,11 +1456,11 @@ export default function Admin() {
                   </div>
                   <div className="bg-gradient-to-r from-pink-500 to-pink-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
                     <h3 className="text-lg font-semibold mb-2">Average Order Value</h3>
-                    <p className="text-2xl font-bold">₹{(analytics.aov || 0).toFixed(2)}</p>
+                    <p className="text-2xl font-bold">₹{analytics.aov.toFixed(2)}</p>
                   </div>
                   <div className="bg-gradient-to-r from-yellow-500 to-yellow-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
                     <h3 className="text-lg font-semibold mb-2">Total Items Sold</h3>
-                    <p className="text-2xl font-bold">{analytics.totalItemsSold || 0}</p>
+                    <p className="text-2xl font-bold">{analytics.totalItemsSold}</p>
                   </div>
                 </div>
                 <div className="bg-white p-6 rounded-lg shadow-md">
