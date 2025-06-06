@@ -802,7 +802,6 @@ export default function Admin() {
     <div className="min-h-screen bg-gray-100 flex">
       <div className="w-64 bg-white shadow-lg p-4 fixed h-full">
             <div className="text-center mb-8">
-      <p className="text-sm text-gray-500 mb-1">QR Based Order Management System</p>
       <p className="text-xs text-gray-400 mb-1">Powered by</p>
       
       <a
