@@ -201,7 +201,7 @@ export default function Table() {
       <div className="flex items-center justify-center gap-2 mb-6">
         <CakeIcon className="h-6 w-6 text-blue-500" />
         <h1 className="text-2xl font-bold text-gray-800" aria-label="Welcome to Gsaheb Cafe">
-          Welcome to Gsaheb Cafe
+          Welcome to Valtri Labs Cafe
         </h1>
         <CakeIcon className="h-6 w-6 text-blue-500" />
       </div>
