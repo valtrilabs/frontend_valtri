@@ -53,14 +53,6 @@ export default function Admin() {
   const [selectedOrderId, setSelectedOrderId] = useState(null);
   const [paymentType, setPaymentType] = useState('');
   const [isLoadingAnalytics, setIsLoadingAnalytics] = useState(false);
-  const [analytics, setAnalytics] = useState({
-    totalOrders: 0,
-    totalRevenue: 0,
-    mostSoldItem: ['N/A', 0],
-    peakHour: 'N/A',
-    totalItemsSold: 0,
-    aov: 0,
-  });
 
   useEffect(() => {
     localStorage.setItem('activeTab', activeTab);
@@ -146,70 +138,44 @@ export default function Admin() {
 
   const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-  async function fetchAnalytics() {
+  async function fetchPaidOrders() {
     setIsLoadingAnalytics(true);
     const maxRetries = 3;
     let attempts = 0;
 
     while (attempts < maxRetries) {
       try {
-        console.log(`Fetching analytics data, attempt ${attempts + 1}`);
+        console.log(`Fetching paid orders, attempt ${attempts + 1}`);
         const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || '';
         const todayStart = new Date();
         todayStart.setHours(0, 0, 0, 0);
-        todayStart.setHours(todayStart.getHours() - 5);
-        todayStart.setMinutes(todayStart.getMinutes() - 30);
         const todayEnd = new Date();
         todayEnd.setHours(23, 59, 59, 999);
-        todayEnd.setHours(todayEnd.getHours() - 5);
-        todayEnd.setMinutes(todayEnd.getMinutes() - 30);
-
-        const endpoints = [
-          'total-orders',
-          'total-revenue',
-          'most-sold-item',
-          'peak-hours',
-          'average-order-value',
-          'total-items-sold',
-        ];
-
-        const requests = endpoints.map((endpoint) =>
-          fetch(`${apiUrl}/api/admin/analytics/${endpoint}?startDate=${todayStart.toISOString()}&endDate=${todayEnd.toISOString()}`, {
-            headers: { 'Content-Type': 'application/json' },
-          }).then((res) => {
-            if (!res.ok) throw new Error(`HTTP ${res.status} for ${endpoint}`);
-            return res.json();
-          })
-        );
-
-        const [totalOrders, totalRevenue, mostSoldItem, peakHour, aov, totalItemsSold] = await Promise.all(requests);
-
-        const analyticsData = {
-          totalOrders: totalOrders.totalOrders || 0,
-          totalRevenue: totalRevenue.totalRevenue || 0,
-          mostSoldItem: [mostSoldItem.name || 'N/A', mostSoldItem.totalSold || 0],
-          peakHour: peakHour.peakHour || 'N/A',
-          aov: aov.aov || 0,
-          totalItemsSold: totalItemsSold.totalItemsSold || 0,
-        };
-
-        console.log('Fetched analytics:', analyticsData);
-        setAnalytics(analyticsData);
+        const params = new URLSearchParams({
+          startDate: todayStart.toISOString(),
+          endDate: todayEnd.toISOString(),
+          statuses: 'paid',
+        });
+        const response = await fetch(`${apiUrl}/api/admin/orders/history?${params}`, {
+          headers: { 'Content-Type': 'application/json' },
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        const data = await response.json();
+        console.log('Paid orders response:', data);
+        if (!Array.isArray(data)) {
+          console.warn('Received non-array data for paid orders:', data);
+          throw new Error('Invalid data format');
+        }
+        setPaidOrders(data);
+        console.log(`Set paid orders: ${data.length} orders`);
         setIsLoadingAnalytics(false);
         return;
       } catch (err) {
         attempts++;
-        console.error(`Failed to fetch analytics (attempt ${attempts}): ${err.message}`);
+        console.error(`Failed to fetch paid orders (attempt ${attempts}): ${err.message}`);
         if (attempts === maxRetries) {
-          setError(`Failed to fetch analytics after ${maxRetries} attempts: ${err.message}`);
-          setAnalytics({
-            totalOrders: 0,
-            totalRevenue: 0,
-            mostSoldItem: ['N/A', 0],
-            peakHour: 'N/A',
-            aov: 0,
-            totalItemsSold: 0,
-          });
+          setError(`Failed to fetch paid orders after ${maxRetries} attempts: ${err.message}`);
+          setPaidOrders([]);
           setIsLoadingAnalytics(false);
           return;
         }
@@ -220,8 +186,8 @@ export default function Admin() {
 
   useEffect(() => {
     if (isLoggedIn && activeTab === 'Data Analytics') {
-      console.log('Triggering fetchAnalytics for Data Analytics tab');
-      fetchAnalytics();
+      console.log('Triggering fetchPaidOrders for Data Analytics tab');
+      fetchPaidOrders();
     }
   }, [isLoggedIn, activeTab]);
 
@@ -367,6 +333,7 @@ export default function Admin() {
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       setOrders((prev) => prev.filter((order) => order.id !== selectedOrderId));
+      await fetchPaidOrders();
       setShowPaymentModal(false);
       setSelectedOrderId(null);
       setPaymentType('');
@@ -675,6 +642,73 @@ export default function Admin() {
     printWindow.document.close();
   };
 
+  const getAnalytics = () => {
+    console.log('Computing analytics with paidOrders:', paidOrders);
+    const today = formatToISTDateForComparison(new Date());
+    const todaysOrders = (paidOrders || []).filter((order) => {
+      try {
+        return formatToISTDateForComparison(new Date(order.created_at)) === today;
+      } catch (e) {
+        console.warn('Invalid order date:', order.created_at);
+        return false;
+      }
+    });
+    console.log("Today's orders:", todaysOrders);
+
+    const totalOrders = todaysOrders.length;
+    const totalRevenue = todaysOrders.reduce((sum, order) => {
+      try {
+        return sum + order.items.reduce((s, item) => s + (item.price || 0) * (item.quantity || 1), 0);
+      } catch (e) {
+        console.warn('Error processing order items:', order);
+        return sum;
+      }
+    }, 0);
+    const itemCounts = {};
+    todaysOrders.forEach((order) => {
+      try {
+        order.items.forEach((item) => {
+          itemCounts[item.name] = (itemCounts[item.name] || 0) + (item.quantity || 1);
+        });
+      } catch (e) {
+        console.warn('Error counting items:', order);
+      }
+    });
+    const mostSoldItem = Object.entries(itemCounts).sort((a, b) => b[1] - a[1])[0] || ['N/A', 0];
+    const ordersByHour = Array(24).fill(0);
+    todaysOrders.forEach((order) => {
+      try {
+        const hour = parseInt(formatToISTHourOnly(new Date(order.created_at)));
+        if (!isNaN(hour)) ordersByHour[hour]++;
+      } catch (e) {
+        console.warn('Error processing order hour:', order);
+      }
+    });
+    const peakHour = ordersByHour.indexOf(Math.max(...ordersByHour));
+    const totalItemsSold = todaysOrders.reduce((sum, order) => {
+      try {
+        return sum + order.items.reduce((s, item) => s + (item.quantity || 1), 0);
+      } catch (e) {
+        console.warn('Error summing items:', order);
+        return sum;
+      }
+    }, 0);
+    const aov = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+
+    const analytics = {
+      totalOrders,
+      totalRevenue,
+      mostSoldItem,
+      peakHour: peakHour === -1 ? 'N/A' : `${peakHour}:00`,
+      totalItemsSold,
+      aov,
+    };
+    console.log('Computed analytics:', analytics);
+    return analytics;
+  };
+
+  const analytics = getAnalytics();
+
   const exportOrders = () => {
     const startDate = new Date(exportFilters.startDate.setHours(0, 0, 0, 0)).toISOString();
     const endDate = new Date(exportFilters.endDate.setHours(23, 59, 59, 999)).toISOString();
@@ -801,18 +835,7 @@ export default function Admin() {
   return (
     <div className="min-h-screen bg-gray-100 flex">
       <div className="w-64 bg-white shadow-lg p-4 fixed h-full">
-            <div className="text-center mb-8">
-      <p className="text-xs text-gray-400 mb-1">Powered by</p>
-      
-      <a
-        href="https://www.valtrilabs.com/"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-2xl font-extrabold bg-gradient-to-r from-purple-500 via-pink-500 to-red-500 bg-clip-text text-transparent"
-      >
-        Valtri Labs
-      </a>
-      </div>
+        <h1 className="text-2xl font-bold mb-8 text-gray-800">Gsaheb Cafe Admin</h1>
         <nav>
           {['Pending Orders', 'Order History', 'Menu Management', 'Data Analytics'].map((tab) => (
             <button
@@ -848,115 +871,89 @@ export default function Admin() {
         )}
 
         {activeTab === 'Pending Orders' && (
-  <div className="px-4 py-6 max-w-screen-lg mx-auto">
-    <h2 className="text-2xl md:text-3xl font-bold text-gray-800 mb-8 text-center md:text-left">
-      Pending Orders
-    </h2>
-    {orders.length === 0 ? (
-      <p className="text-gray-500 text-center text-lg">No pending orders at this moment</p>
-    ) : (
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-        {orders.map((order) => {
-          const total = order.items.reduce(
-            (sum, item) => sum + (item.price || 0) * (item.quantity || 1),
-            0
-          );
-          const formattedDate = formatToIST(new Date(order.created_at));
-          return (
-            <div
-              key={order.id}
-              className="bg-white p-6 rounded-xl shadow-lg flex flex-col"
-            >
-              <div className="flex justify-between items-start mb-5 flex-wrap gap-4">
-                <div>
-                  <h3 className="text-xl font-semibold text-gray-900">
-                    Order #{order.order_number || order.id}
-                  </h3>
-                  <p className="text-sm text-gray-500 mt-1">{formattedDate}</p>
-                  <p className="text-sm text-gray-500 mt-1">
-                    Table {order.tables?.number || order.table_id || 'N/A'}
-                  </p>
-                </div>
-                <div className="flex gap-3 flex-wrap">
-                  <button
-                    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2 whitespace-nowrap"
-                    onClick={() => startEditing(order)}
-                    aria-label={`Edit order ${order.order_number || order.id}`}
-                  >
-                    <PencilSquareIcon className="h-5 w-5" />
-                    Edit
-                  </button>
-                  <button
-                    className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 flex items-center gap-2 whitespace-nowrap"
-                    onClick={() => initiateMarkAsPaid(order.id)}
-                    aria-label={`Mark order ${order.order_number || order.id} as paid`}
-                  >
-                    Mark as Paid
-                  </button>
-                  <button
-                    className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 flex items-center gap-2 whitespace-nowrap"
-                    onClick={() => printBill(order)}
-                    aria-label={`Print bill for order ${order.order_number || order.id}`}
-                  >
-                    <PrinterIcon className="h-5 w-5" />
-                    Print Bill
-                  </button>
-                </div>
+          <div>
+            <h2 className="text-2xl font-bold text-gray-800 mb-6">Pending Orders</h2>
+            {orders.length === 0 ? (
+              <p className="text-gray-500 text-center">No pending orders</p>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {orders.map((order) => {
+                  const total = order.items.reduce(
+                    (sum, item) => sum + (item.price || 0) * (item.quantity || 1),
+                    0
+                  );
+                  const formattedDate = formatToIST(new Date(order.created_at));
+                  return (
+                    <div key={order.id} className="bg-white p-6 rounded-lg shadow-md">
+                      <div className="flex justify-between items-center mb-4">
+                        <div>
+                          <h3 className="text-lg font-semibold">Order #{order.order_number || order.id}</h3>
+                          <p className="text-sm text-gray-500">{formattedDate}</p>
+                          <p className="text-sm text-gray-500">
+                            Table {order.tables?.number || order.table_id || 'N/A'}
+                          </p>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                            onClick={() => startEditing(order)}
+                            aria-label={`Edit order ${order.order_number || order.id}`}
+                          >
+                            <PencilSquareIcon className="h-5 w-5" />
+                            Edit
+                          </button>
+                          <button
+                            className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 flex items-center gap-2"
+                            onClick={() => initiateMarkAsPaid(order.id)}
+                            aria-label={`Mark order ${order.order_number || order.id} as paid`}
+                          >
+                            Mark as Paid
+                          </button>
+                          <button
+                            className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 flex items-center gap-2"
+                            onClick={() => printBill(order)}
+                            aria-label={`Print bill for order ${order.order_number || order.id}`}
+                          >
+                            <PrinterIcon className="h-5 w-5" />
+                            Print Bill
+                          </button>
+                        </div>
+                      </div>
+                      <table className="w-full">
+                        <thead>
+                          <tr className="border-b">
+                            <th className="text-left py-2">Item</th>
+                            <th className="text-right py-2">Qty</th>
+                            <th className="text-right py-2">Price</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {order.items.map((item, index) => (
+                            <tr key={index}>
+                              <td className="py-2">{item.name || 'N/A'}</td>
+                              <td className="text-right py-2">{item.quantity || 1}</td>
+                              <td className="text-right py-2">
+                                ₹{((item.price || 0) * (item.quantity || 1)).toFixed(2)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      <div className="flex justify-between mt-4 font-semibold">
+                        <span>Total</span>
+                        <span>₹{total.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[320px] table-auto border-collapse">
-                  <thead>
-                    <tr className="border-b border-gray-300">
-                      <th className="text-left py-2 px-2 md:px-4 text-gray-700 font-medium">
-                        Item
-                      </th>
-                      <th className="text-right py-2 px-2 md:px-4 text-gray-700 font-medium">
-                        Qty
-                      </th>
-                      <th className="text-right py-2 px-2 md:px-4 text-gray-700 font-medium">
-                        Price
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {order.items.map((item, index) => (
-                      <tr
-                        key={index}
-                        className={index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}
-                      >
-                        <td className="py-2 px-2 md:px-4">{item.name || 'N/A'}</td>
-                        <td className="text-right py-2 px-2 md:px-4">
-                          {item.quantity || 1}
-                        </td>
-                        <td className="text-right py-2 px-2 md:px-4">
-                          ₹{((item.price || 0) * (item.quantity || 1)).toFixed(2)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div className="flex justify-between mt-5 font-semibold text-gray-900 text-lg">
-                <span>Total</span>
-                <span>₹{total.toFixed(2)}</span>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    )}
-  </div>
-)}
-
-
-
-
-
-
+            )}
+          </div>
+        )}
 
         {showPaymentModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-            <div className="bg-white p-6 rounded-lg max-w-2xl w-full">
+              <div className="bg-white p-6 rounded-lg max-w-2xl w-full">
               <h3 className="text-xl font-semibold mb-4">Select Payment Method</h3>
               <select
                 value={paymentType}
@@ -994,113 +991,97 @@ export default function Admin() {
           </div>
         )}
 
-
-
-{editingOrder && (
-  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-    <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] flex flex-col p-0 overflow-hidden">
-      {/* Header */}
-      <div className="p-6 border-b">
-        <h3 className="text-xl font-semibold">
-          Edit Order #{editingOrder.order_number || editingOrder.id}
-        </h3>
-      </div>
-
-      {/* Scrollable Content */}
-      <div className="overflow-y-auto px-6 py-4 flex-1">
-        <table className="w-full mb-4">
-          <thead>
-            <tr className="border-b">
-              <th className="text-left py-2">Item</th>
-              <th className="text-right py-2">Qty</th>
-              <th className="text-right py-2">Price</th>
-              <th className="text-center py-2">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {editedItems.map((item, index) => (
-              <tr key={index}>
-                <td className="py-2">{item.name || 'N/A'}</td>
-                <td className="text-right py-2">
-                  <div className="flex items-center justify-end gap-2">
-                    <button
-                      className="bg-gray-200 text-gray-800 px-3 py-1 rounded hover:bg-gray-300"
-                      onClick={() => updateQuantity(index, -1)}
-                      aria-label={`Decrease quantity for ${item.name}`}
-                    >
-                      -
-                    </button>
-                    <span>{item.quantity || 1}</span>
-                    <button
-                      className="bg-gray-200 text-gray-800 px-3 py-1 rounded hover:bg-gray-300"
-                      onClick={() => updateQuantity(index, 1)}
-                      aria-label={`Increase quantity for ${item.name}`}
-                    >
-                      +
-                    </button>
-                  </div>
-                </td>
-                <td className="text-right py-2">
-                  ₹{((item.price || 0) * (item.quantity || 1)).toFixed(2)}
-                </td>
-                <td className="text-center py-2">
-                  <button
-                    className="text-red-600 hover:text-red-800"
-                    onClick={() => removeItem(index)}
-                    aria-label={`Remove item ${item.name}`}
-                  >
-                    <TrashIcon className="h-5 w-5" />
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-
-        {/* Add Item Section */}
-        <div className="mb-4">
-          <label className="block text-sm font-medium mb-1">Add Item</label>
-          <select
-            className="border p-2 w-full rounded-md"
-            onChange={(e) => addItem(Number(e.target.value))}
-            value=""
-            aria-label="Add item to order"
-          >
-            <option value="">Select item</option>
-            {menuItems
-              .filter((item) => item.is_available)
-              .map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name} (₹{(item.price || 0).toFixed(2)})
-                </option>
-              ))}
-          </select>
-        </div>
-      </div>
-
-      {/* Footer */}
-      <div className="p-4 border-t flex justify-end gap-4">
-        <button
-          className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 transition"
-          onClick={cancelEdit}
-          aria-label="Cancel edit"
-        >
-          Cancel
-        </button>
-        <button
-          className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition"
-          onClick={saveOrder}
-          aria-label="Save order changes"
-        >
-          Update Order
-        </button>
-      </div>
-    </div>
-  </div>
-)}
-
-
-
+        {editingOrder && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+            <div className="bg-white p-6 rounded-lg max-w-2xl w-full">
+              <h3 className="text-xl font-semibold mb-6">
+                Edit Order #{editingOrder.order_number || editingOrder.id}
+              </h3>
+              <table className="w-full mb-4">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-2">Item</th>
+                    <th className="text-right py-2">Qty</th>
+                    <th className="text-right py-2">Price</th>
+                    <th className="text-center py-2">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {editedItems.map((item, index) => (
+                    <tr key={index}>
+                      <td className="py-2">{item.name || 'N/A'}</td>
+                      <td className="text-right py-2">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            className="bg-gray-200 text-gray-800 px-3 py-1 rounded hover:bg-gray-300"
+                            onClick={() => updateQuantity(index, -1)}
+                            aria-label={`Decrease quantity for ${item.name}`}
+                          >
+                            -
+                          </button>
+                          <span>{item.quantity || 1}</span>
+                          <button
+                            className="bg-gray-200 text-gray-800 px-3 py-1 rounded hover:bg-gray-300"
+                            onClick={() => updateQuantity(index, 1)}
+                            aria-label={`Increase quantity for ${item.name}`}
+                          >
+                            +
+                          </button>
+                        </div>
+                      </td>
+                      <td className="text-right py-2">
+                        ₹{((item.price || 0) * (item.quantity || 1)).toFixed(2)}
+                      </td>
+                      <td className="text-center py-2">
+                        <button
+                          className="text-red-600 hover:text-red-800"
+                          onClick={() => removeItem(index)}
+                          aria-label={`Remove item ${item.name}`}
+                        >
+                          <TrashIcon className="h-5 w-5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="mb-4">
+                <label className="block text-sm font-medium mb-1">Add Item</label>
+                <select
+                  className="border p-2 w-full rounded-md"
+                  onChange={(e) => addItem(Number(e.target.value))}
+                  value=""
+                  aria-label="Add item to order"
+                >
+                  <option value="">Select item</option>
+                  {menuItems
+                    .filter((item) => item.is_available)
+                    .map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name} (₹{(item.price || 0).toFixed(2)})
+                      </option>
+                    ))}
+                </select>
+              </div>
+              <div className="flex justify-end gap-4">
+                <button
+                  className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 transition"
+                  onClick={cancelEdit}
+                  aria-label="Cancel edit"
+                >
+                  Cancel
+                </button>
+                <button
+                  className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition"
+                  onClick={saveOrder}
+                  aria-label="Save order changes"
+                >
+                  Update Order
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {activeTab === 'Order History' && (
           <div>
@@ -1431,38 +1412,38 @@ export default function Admin() {
             ) : (
               <>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-                  <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white p-6 rounded-lg shadow-md transform hover:scale-105 transition">
+                  <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
                     <h3 className="text-lg font-semibold mb-2">Total Orders</h3>
                     <p className="text-2xl font-bold">{analytics.totalOrders || 0}</p>
                   </div>
-                  <div className="bg-gradient-to-r from-green-500 to-green-600 text-white p-6 rounded-lg shadow-md transform hover:scale-105 transition">
+                  <div className="bg-gradient-to-r from-green-500 to-green-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
                     <h3 className="text-lg font-semibold mb-2">Total Revenue</h3>
                     <p className="text-2xl font-bold">₹{(analytics.totalRevenue || 0).toFixed(2)}</p>
                   </div>
-                  <div className="bg-gradient-to-r from-purple-500 to-purple-600 text-white p-6 rounded-lg shadow-md transform hover:scale-105 transition">
+                  <div className="bg-gradient-to-r from-purple-500 to-purple-600 text-white text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
                     <h3 className="text-lg font-semibold mb-2">Most Sold Item</h3>
                     <p className="text-2xl font-bold">{analytics.mostSoldItem[0]}</p>
                     <p className="text-sm">{analytics.mostSoldItem[1]} units</p>
                   </div>
-                  <div className="bg-gradient-to-r from-orange-500 to-orange-600 text-white p-6 rounded-lg shadow-md transform hover:scale-105 transition">
+                  <div className="bg-gradient-to-r from-orange-500 to-orange-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
                     <h3 className="text-lg font-semibold mb-2">Peak Hour</h3>
                     <p className="text-2xl font-bold">{analytics.peakHour}</p>
                   </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-                  <div className="bg-gradient-to-r from-teal-500 to-teal-600 text-white p-6 rounded-lg shadow-md transform hover:scale-105 transition">
+                  <div className="bg-gradient-to-r from-teal-500 to-teal-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
                     <h3 className="text-lg font-semibold mb-2">Weekly Revenue</h3>
                     <p className="text-2xl font-bold">₹{(weeklyRevenue || 0).toFixed(2)}</p>
                   </div>
-                  <div className="bg-gradient-to-r from-indigo-500 to-indigo-600 text-white p-6 rounded-lg shadow-md transform hover:scale-105 transition">
+                  <div className="bg-gradient-to-r from-indigo-500 to-indigo-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
                     <h3 className="text-lg font-semibold mb-2">Monthly Revenue</h3>
                     <p className="text-2xl font-bold">₹{(monthlyRevenue || 0).toFixed(2)}</p>
                   </div>
-                  <div className="bg-gradient-to-r from-pink-500 to-pink-600 text-white p-6 rounded-lg shadow-md transform hover:scale-105 transition">
+                  <div className="bg-gradient-to-r from-pink-500 to-pink-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
                     <h3 className="text-lg font-semibold mb-2">Average Order Value</h3>
                     <p className="text-2xl font-bold">₹{(analytics.aov || 0).toFixed(2)}</p>
                   </div>
-                  <div className="bg-gradient-to-r from-yellow-500 to-yellow-600 text-white p-6 rounded-lg shadow-md transform hover:scale-105 transition">
+                  <div className="bg-gradient-to-r from-yellow-500 to-yellow-600 text-white p-6 rounded-lg shadow-lg transform hover:scale-105 transition">
                     <h3 className="text-lg font-semibold mb-2">Total Items Sold</h3>
                     <p className="text-2xl font-bold">{analytics.totalItemsSold || 0}</p>
                   </div>
