@@ -172,40 +172,47 @@ export default function Waiter() {
   };
 
   // Save edited order
-  const saveEditedOrder = async () => {
-    if (!editingOrder) return;
-    if (cart.length === 0) return setError('Cart is empty.');
-    try {
-      setError(null);
-      const response = await fetch(`${apiUrl}/api/orders/${editingOrder.orderId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          items: cart,
-          notes: orderNote || null,
-        }),
-        signal: AbortSignal.timeout(30000),
-      });
-      const order = await response.json();
-      if (!response.ok || !order.id) {
-        throw new Error(order.error || `HTTP ${response.status}`);
-      }
-      setCart([]);
-      setTableNumber('');
-      setOrderNote('');
-      setIsCartOpen(false);
-      setEditingOrder(null);
-      setError('Order updated successfully!');
-      // Revalidate pending orders
-      mutateOrders();
-      // Fallback: Reload page after 3 seconds if mutate doesn't update the UI
-      setTimeout(() => {
-        window.location.reload();
-      }, 3000);
-    } catch (err) {
-      setError(`Failed to update order: ${err.message}`);
+const saveEditedOrder = async () => {
+  if (!editingOrder) return;
+  if (cart.length === 0) return setError('Cart is empty.');
+  try {
+    setError(null);
+    const normalizedItems = cart.map(item => ({
+      item_id: item.item_id,
+      name: item.name,
+      price: item.price,
+      category: item.category || '',
+      image_url: item.image_url || '',
+      quantity: item.quantity || 1,
+      note: item.note || '',
+    }));
+    const response = await fetch(`${apiUrl}/api/orders/${editingOrder.orderId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        items: normalizedItems,
+        notes: orderNote || null,
+      }),
+      signal: AbortSignal.timeout(30000),
+    });
+    const order = await response.json();
+    if (!response.ok || !order.id) {
+      throw new Error(order.error || `HTTP ${response.status}`);
     }
-  };
+    setCart([]);
+    setTableNumber('');
+    setOrderNote('');
+    setIsCartOpen(false);
+    setEditingOrder(null);
+    setError('Order updated successfully!');
+    mutateOrders();
+    setTimeout(() => {
+      window.location.reload();
+    }, 3000);
+  } catch (err) {
+    setError(`Failed to update order: ${err.message}`);
+  }
+};
 
   // Refresh page
   const refreshPage = () => {
