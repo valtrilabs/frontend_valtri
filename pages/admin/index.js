@@ -391,50 +391,38 @@ export default function Admin() {
     setEditedItems(editedItems.filter((_, i) => i !== index));
   };
 
-const addItem = (itemId) => {
-  const menuItem = menuItems.find((item) => item.id === itemId);
-  if (menuItem && !editedItems.some((item) => item.item_id === itemId)) {
-    setEditedItems([
-      ...editedItems,
-      {
-        item_id: menuItem.id,
-        name: menuItem.name,
-        price: menuItem.price,
-        category: menuItem.category || '',
-        image_url: menuItem.image_url || '',
-        quantity: 1,
-        note: '',
-      },
-    ]);
-  }
-};
+  const addItem = (itemId) => {
+    const menuItem = menuItems.find((item) => item.id === itemId);
+    if (menuItem && !editedItems.some((item) => item.item_id === itemId)) {
+      setEditedItems([
+        ...editedItems,
+        {
+          item_id: menuItem.id,
+          name: menuItem.name,
+          price: menuItem.price,
+          quantity: 1,
+        },
+      ]);
+    }
+  };
 
-const saveOrder = async () => {
-  try {
-    const normalizedItems = editedItems.map(item => ({
-      item_id: item.item_id,
-      name: item.name,
-      price: item.price,
-      category: item.category || '',
-      image_url: item.image_url || '',
-      quantity: item.quantity || 1,
-      note: item.note || '',
-    }));
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || '';
-    const response = await fetch(`${apiUrl}/api/orders/${editingOrder.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items: normalizedItems }),
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const updatedOrder = await response.json();
-    setOrders((prev) => prev.map((o) => (o.id === editingOrder.id ? updatedOrder : o)));
-    setEditingOrder(null);
-    setEditedItems([]);
-  } catch (err) {
-    setError(`Failed to update order: ${err.message}`);
-  }
-};
+  const saveOrder = async () => {
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || '';
+      const response = await fetch(`${apiUrl}/api/orders/${editingOrder.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: editedItems }),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const updatedOrder = await response.json();
+      setOrders((prev) => prev.map((o) => (o.id === editingOrder.id ? updatedOrder : o)));
+      setEditingOrder(null);
+      setEditedItems([]);
+    } catch (err) {
+      setError(`Failed to update order: ${err.message}`);
+    }
+  };
 
   const cancelEdit = () => {
     setEditingOrder(null);
