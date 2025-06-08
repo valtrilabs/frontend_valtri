@@ -802,7 +802,7 @@ export default function Admin() {
     <div className="min-h-screen bg-gray-100 flex">
       <div className="w-64 bg-white shadow-lg p-4 fixed h-full">
             <div className="text-center mb-8">
-      <p className="text-xs text-gray-400 mb-1">Powered by</p>
+      <p className="text-xs text-gray-400 mb-1">Product by</p>
       
       <a
         href="https://www.valtrilabs.com/"
