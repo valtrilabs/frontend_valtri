@@ -113,8 +113,8 @@ export default function Order() {
       <div className="bg-white p-6 rounded-lg shadow space-y-4">
   <div className="mb-2">
     <p className="text-lg font-semibold">Order Number: #{order.order_number || order.id}</p>
-    <p className="text-sm text-gray-500">Date and Time: {formattedDate}</p>
-    <p className="text-sm text-gray-500">Table Number: {order.tables?.number || order.table_id}</p>
+    <p className="text-sm text-gray-500">Date: {formattedDate}</p>
+    <p className="text-sm text-gray-500">Table: {order.tables?.number || order.table_id}</p>
   </div>
 
   {/* Thank you message */}
