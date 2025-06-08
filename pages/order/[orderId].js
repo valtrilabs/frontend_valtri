@@ -99,7 +99,7 @@ export default function Order() {
         <p className="text-green-600 font-semibold mb-4">
           To Edit your current order or to order new items, Please contact our waiter. 
         </p>
-        <h2 className="font-semibold text-lg mb-2">Items</h2>
+        <h2 className="font-semibold text-lg mb-2">Ordered Food Items</h2>
         <ul className="mb-4">
           {order.items.map((item, index) => (
             <li key={index} className="flex justify-between">
@@ -113,6 +113,13 @@ export default function Order() {
         <p className="font-semibold">Total: ₹{total.toFixed(2)}</p>
         <p className="mt-4">Status: {order.status}</p>
       </div>
+      <p className="text-green-600 font-semibold text-lg mb-2">
+  Thank you for ordering! Please wait 10 minutes for your order to arrive.
+</p>
+<p className="text-gray-700 text-sm">
+  To edit your current order or to order new items, please contact our waiter.
+</p>
+
     </div>
   );
 }
