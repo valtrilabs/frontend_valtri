@@ -122,9 +122,7 @@ export default function Order() {
     <p className="text-green-600 font-semibold text-lg mb-1">
       Thank you for ordering! Please wait 15 minutes for your order to arrive.
     </p>
-    <p className="text-gray-600 text-sm mb-4">
-      To edit your current order or to order new items, please contact our waiter.
-    </p>
+
   </div>
 
   {/* Ordered items */}
@@ -143,6 +141,9 @@ export default function Order() {
     <p className="font-semibold text-lg text-black">Total: ₹{total.toFixed(2)}</p>
     <p className="text-sm text-gray-700 mt-2">Status: {order.status}</p>
   </div>
+      <p className="text-gray-600 text-sm mb-4">
+      To edit your current order or to order new items, please contact our waiter.
+    </p>
 </div>
 
 
