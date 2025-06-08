@@ -89,12 +89,15 @@ export default function Order() {
       </h1>
       <div className="bg-white p-6 rounded-lg shadow">
         <div className="mb-4">
-          <p className="text-lg font-semibold">Order #{order.order_number || order.id}</p>
-          <p className="text-sm text-gray-500">Placed on {formattedDate}</p>
-          <p className="text-sm text-gray-500">Table {order.tables?.number || order.table_id}</p>
+          <p className="text-lg font-semibold">Order No: #{order.order_number || order.id}</p>
+          <p className="text-sm text-gray-500">Date and Time: {formattedDate}</p>
+          <p className="text-sm text-gray-500">Table Number: {order.tables?.number || order.table_id}</p>
         </div>
         <p className="text-green-600 font-semibold mb-4">
           Thank you for ordering! Please wait 10 minutes for your order to arrive.
+        </p>
+        <p className="text-green-600 font-semibold mb-4">
+          To Edit your current order or to order new items, Please contact our waiter. 
         </p>
         <h2 className="font-semibold text-lg mb-2">Items</h2>
         <ul className="mb-4">
