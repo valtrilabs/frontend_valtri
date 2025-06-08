@@ -129,7 +129,7 @@ export default function Order() {
 
   {/* Ordered items */}
   <div>
-    <h2 className="font-semibold text-lg mb-2">Ordered Items</h2>
+    <h2 className="font-semibold text-lg mb-2">You have ordered</h2>
     <ul className="space-y-1 mb-4">
       {order.items.map((item, index) => (
         <li key={index} className="flex justify-between text-gray-800">
