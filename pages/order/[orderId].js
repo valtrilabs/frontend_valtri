@@ -112,7 +112,7 @@ export default function Order() {
 
       <div className="bg-white p-6 rounded-lg shadow space-y-4">
   <div className="mb-2">
-    <p className="text-lg font-semibold">Order No: #{order.order_number || order.id}</p>
+    <p className="text-lg font-semibold">Order Number: #{order.order_number || order.id}</p>
     <p className="text-sm text-gray-500">Date and Time: {formattedDate}</p>
     <p className="text-sm text-gray-500">Table Number: {order.tables?.number || order.table_id}</p>
   </div>
@@ -120,7 +120,7 @@ export default function Order() {
   {/* Thank you message */}
   <div>
     <p className="text-green-600 font-semibold text-lg mb-1">
-      Thank you for ordering! Please wait 10 minutes for your order to arrive.
+      Thank you for ordering! Please wait 15 minutes for your order to arrive.
     </p>
     <p className="text-gray-600 text-sm mb-4">
       To edit your current order or to order new items, please contact our waiter.
@@ -129,7 +129,7 @@ export default function Order() {
 
   {/* Ordered items */}
   <div>
-    <h2 className="font-semibold text-lg mb-2">You have ordered</h2>
+    <h2 className="font-semibold text-lg mb-2">Items</h2>
     <ul className="space-y-1 mb-4">
       {order.items.map((item, index) => (
         <li key={index} className="flex justify-between text-gray-800">
