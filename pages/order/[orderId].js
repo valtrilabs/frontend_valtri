@@ -139,8 +139,9 @@ export default function Order() {
       ))}
     </ul>
     <p className="font-semibold text-lg text-black">Total: ₹{total.toFixed(2)}</p>
+    <p className="text-sm text-gray-700 mt-2">Order Status: Confirmed & Food is under Preparation</p>
     <p className="text-sm text-gray-700 mt-2">Payment Status: {order.status}</p>
-    <p className="text-sm text-gray-700 mt-2">Order Status: Under Preparation</p>
+    
   </div>
       <p className="text-gray-600 text-sm mb-4">
       Please contact our waiter to edit your order.</p>
