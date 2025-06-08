@@ -142,8 +142,7 @@ export default function Order() {
     <p className="text-sm text-gray-700 mt-2">Status: {order.status}</p>
   </div>
       <p className="text-gray-600 text-sm mb-4">
-      To edit your current order or to order new items, please contact our waiter.
-    </p>
+      Please contact our waiter to eidt your order.</p>
 </div>
 
 
