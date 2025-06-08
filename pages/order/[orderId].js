@@ -87,7 +87,7 @@ export default function Order() {
       <h1 className="text-2xl font-bold mb-4" aria-label={`Order Summary for Table ${order.tables.number}`}>
         Order Summary - Table {order.tables.number}
       </h1>
-      <div className="bg-white p-6 rounded-lg shadow">
+      {/* <div className="bg-white p-6 rounded-lg shadow">
         <div className="mb-4">
           <p className="text-lg font-semibold">Order No: #{order.order_number || order.id}</p>
           <p className="text-sm text-gray-500">Date and Time: {formattedDate}</p>
@@ -95,7 +95,7 @@ export default function Order() {
         </div>
         <p className="text-green-600 font-semibold text-lg mb-2"> Thank you for ordering! Please wait 10 minutes for your order to arrive.</p>
         <p className="text-gray-700 text-sm">To edit your current order or to order new items, please contact our waiter.</p>
-        <h2 className="font-semibold text-lg mb-2">Ordered Food Items</h2>
+        <h2 className="font-semibold text-lg mb-2">Ordered Items</h2>
         <ul className="mb-4">
           {order.items.map((item, index) => (
             <li key={index} className="flex justify-between">
@@ -108,7 +108,45 @@ export default function Order() {
         </ul>
         <p className="font-semibold">Total: ₹{total.toFixed(2)}</p>
         <p className="mt-4">Status: {order.status}</p>
-      </div>
+      </div> */}
+
+      <div className="bg-white p-6 rounded-lg shadow space-y-4">
+  <div className="mb-2">
+    <p className="text-lg font-semibold">Order No: #{order.order_number || order.id}</p>
+    <p className="text-sm text-gray-500">Date and Time: {formattedDate}</p>
+    <p className="text-sm text-gray-500">Table Number: {order.tables?.number || order.table_id}</p>
+  </div>
+
+  {/* Thank you message */}
+  <div>
+    <p className="text-green-600 font-semibold text-lg mb-1">
+      Thank you for ordering! Please wait 10 minutes for your order to arrive.
+    </p>
+    <p className="text-gray-600 text-sm mb-4">
+      To edit your current order or to order new items, please contact our waiter.
+    </p>
+  </div>
+
+  {/* Ordered items */}
+  <div>
+    <h2 className="font-semibold text-lg mb-2">Ordered Food Items</h2>
+    <ul className="space-y-1 mb-4">
+      {order.items.map((item, index) => (
+        <li key={index} className="flex justify-between text-gray-800">
+          <span>
+            {item.name} {item.quantity > 1 ? `x${item.quantity}` : ''}
+          </span>
+          <span>₹{(item.price * (item.quantity || 1)).toFixed(2)}</span>
+        </li>
+      ))}
+    </ul>
+    <p className="font-semibold text-lg text-black">Total: ₹{total.toFixed(2)}</p>
+    <p className="text-sm text-gray-700 mt-2">Status: {order.status}</p>
+  </div>
+</div>
+
+
+
     </div>
   );
 }
