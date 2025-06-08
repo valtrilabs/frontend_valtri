@@ -5,7 +5,7 @@ import { supabase } from '../../lib/supabase';
 import BottomCart from '../../components/BottomCart';
 import { CakeIcon, ShoppingCartIcon } from '@heroicons/react/24/outline';
 
-const fetcher = (url) => fetch(url).then(res => res.json());
+const fetcher = (url) => fetch(url).then((res) => res.json());
 
 export default function Table() {
   const router = useRouter();
@@ -16,18 +16,16 @@ export default function Table() {
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [error, setError] = useState(null);
-  const [addedItems, setAddedItems] = useState({}); // Track items showing "Added"
+  const [addedItems, setAddedItems] = useState({});
 
   // Check if user has an active pending order
   useEffect(() => {
-    // Clear localStorage on page load to prevent stale data
     localStorage.removeItem('orderId');
     localStorage.removeItem('appendOrder');
 
     async function checkActiveOrder() {
       if (!id) return;
       try {
-        // Check for pending orders for this table
         const { data, error } = await supabase
           .from('orders')
           .select('id, status')
@@ -39,7 +37,7 @@ export default function Table() {
           console.error('Error checking orders:', error.message);
           throw error;
         }
-        console.log('Pending orders found for table', id, ':', data); // Debug log
+        console.log('Pending orders found for table', id, ':', data);
         if (data.length > 0) {
           const order = data[0];
           console.log('Pending order found, redirecting to /order/', order.id);
@@ -50,6 +48,7 @@ export default function Table() {
         }
       } catch (err) {
         console.error('Error checking table orders:', err.message);
+        setError('Failed to check existing orders. Please try again.');
       }
     }
     checkActiveOrder();
@@ -59,10 +58,19 @@ export default function Table() {
   useEffect(() => {
     const appendOrder = localStorage.getItem('appendOrder');
     if (appendOrder) {
-      const { orderId, items } = JSON.parse(appendOrder);
-      setCart(items);
-      setIsAppending(true);
-      setAppendOrderId(orderId);
+      try {
+        const { orderId, items } = JSON.parse(appendOrder);
+        if (orderId && Array.isArray(items)) {
+          setCart(items);
+          setIsAppending(true);
+          setAppendOrderId(orderId);
+        } else {
+          localStorage.removeItem('appendOrder');
+        }
+      } catch (err) {
+        console.error('Invalid appendOrder in localStorage:', err.message);
+        localStorage.removeItem('appendOrder');
+      }
     }
   }, []);
 
@@ -71,10 +79,10 @@ export default function Table() {
   const { data: menu, error: fetchError, isLoading } = useSWR(`${apiUrl}/api/menu`, fetcher);
 
   // Unique categories
-  const categories = ['All', ...new Set(menu?.map(item => item.category).filter(Boolean))];
+  const categories = ['All', ...new Set(menu?.map((item) => item.category).filter(Boolean))];
 
   // Filtered menu
-  const filteredMenu = selectedCategory === 'All' ? menu : menu?.filter(item => item.category === selectedCategory);
+  const filteredMenu = selectedCategory === 'All' ? menu : menu?.filter((item) => item.category === selectedCategory);
 
   // Handle errors
   useEffect(() => {
@@ -85,14 +93,14 @@ export default function Table() {
 
   // Add to cart with text flash
   const addToCart = (item) => {
-    setAddedItems(prev => ({ ...prev, [item.id]: true }));
+    setAddedItems((prev) => ({ ...prev, [item.id]: true }));
     setTimeout(() => {
-      setAddedItems(prev => ({ ...prev, [item.id]: false }));
-    }, 1000); // Show "Added" for 1 second
-    setCart(prevCart => {
-      const existingItem = prevCart.find(cartItem => cartItem.item_id === item.id);
+      setAddedItems((prev) => ({ ...prev, [item.id]: false }));
+    }, 1000);
+    setCart((prevCart) => {
+      const existingItem = prevCart.find((cartItem) => cartItem.item_id === item.id);
       if (existingItem) {
-        return prevCart.map(cartItem =>
+        return prevCart.map((cartItem) =>
           cartItem.item_id === item.id
             ? { ...cartItem, quantity: (cartItem.quantity || 1) + 1 }
             : cartItem
@@ -111,71 +119,103 @@ export default function Table() {
       ];
     });
     setIsCartOpen(true);
-    console.log('Analytics - Item added:', { item_id: item.id, name: item.name, timestamp: new Date().toISOString() });
+    console.log('Analytics - Item added:', {
+      item_id: item.id,
+      name: item.name,
+      timestamp: new Date().toISOString(),
+    });
   };
 
-  // Place new order
+  // Place new order with retry logic
   const placeOrder = async () => {
-    if (cart.length === 0) return alert('Cart is empty');
-    try {
-      setError(null);
-      console.log('PlaceOrder - API URL:', apiUrl);
-      console.log('PlaceOrder - Payload:', JSON.stringify({ table_id: parseInt(id), items: cart }));
-      const response = await fetch(`${apiUrl}/api/orders`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ table_id: parseInt(id), items: cart }),
-        signal: AbortSignal.timeout(30000),
-      });
-      console.log('PlaceOrder - Response status:', response.status);
-      const order = await response.json();
-      if (!response.ok || !order.id) {
-        throw new Error(order.error || `HTTP ${response.status}`);
+    if (cart.length === 0) {
+      setError('Cart is empty.');
+      return;
+    }
+    const maxRetries = 3;
+    let attempts = 0;
+
+    while (attempts < maxRetries) {
+      try {
+        setError(null);
+        console.log('PlaceOrder - API URL:', apiUrl);
+        console.log('PlaceOrder - Payload:', JSON.stringify({ table_id: parseInt(id), items: cart }));
+        const response = await fetch(`${apiUrl}/api/orders`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ table_id: parseInt(id), items: cart }),
+          signal: AbortSignal.timeout(30000),
+        });
+        console.log('PlaceOrder - Response status:', response.status);
+        const order = await response.json();
+        if (!response.ok || !order.id) {
+          throw new Error(order.error || `HTTP ${response.status}`);
+        }
+        localStorage.setItem('orderId', order.id);
+        setCart([]);
+        setIsCartOpen(false);
+        router.replace(`/order/${order.id}`);
+        return;
+      } catch (err) {
+        attempts++;
+        console.error(`PlaceOrder attempt ${attempts} failed:`, err.message);
+        if (attempts === maxRetries) {
+          setError(`Failed to place order after ${maxRetries} attempts: ${err.message}`);
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1000));
       }
-      localStorage.setItem('orderId', order.id);
-      setCart([]);
-      setIsCartOpen(false);
-      router.replace(`/order/${order.id}`);
-    } catch (err) {
-      console.error('PlaceOrder error:', err.message);
-      setError(`Failed to place order: ${err.message}`);
     }
   };
 
-  // Update existing order
+  // Update existing order with retry logic
   const updateOrder = async () => {
-    if (cart.length === 0) return alert('Cart is empty');
-    try {
-      setError(null);
-      console.log('UpdateOrder - API URL:', `${apiUrl}/api/orders/${appendOrderId}`);
-      console.log('UpdateOrder - Payload:', JSON.stringify({ items: cart }));
-      const response = await fetch(`${apiUrl}/api/orders/${appendOrderId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items: cart }),
-        signal: AbortSignal.timeout(30000),
-      });
-      console.log('UpdateOrder - Response status:', response.status);
-      const order = await response.json();
-      if (!response.ok || !order.id) {
-        throw new Error(order.error || `HTTP ${response.status}`);
+    if (cart.length === 0) {
+      setError('Cart is empty.');
+      return;
+    }
+    const maxRetries = 3;
+    let attempts = 0;
+
+    while (attempts < maxRetries) {
+      try {
+        setError(null);
+        console.log('UpdateOrder - API URL:', `${apiUrl}/api/orders/${appendOrderId}`);
+        console.log('UpdateOrder - Payload:', JSON.stringify({ items: cart }));
+        const response = await fetch(`${apiUrl}/api/orders/${appendOrderId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items: cart }),
+          signal: AbortSignal.timeout(30000),
+        });
+        console.log('UpdateOrder - Response status:', response.status);
+        const order = await response.json();
+        if (!response.ok || !order.id) {
+          throw new Error(order.error || `HTTP ${response.status}`);
+        }
+        localStorage.removeItem('appendOrder');
+        setIsAppending(false);
+        setAppendOrderId(null);
+        localStorage.setItem('orderId', order.id);
+        setCart([]);
+        setIsCartOpen(false);
+        router.replace(`/order/${order.id}`);
+        return;
+      } catch (err) {
+        attempts++;
+        console.error(`UpdateOrder attempt ${attempts} failed:`, err.message);
+        if (attempts === maxRetries) {
+          setError(`Failed to update order after ${maxRetries} attempts: ${err.message}`);
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1000));
       }
-      localStorage.removeItem('appendOrder');
-      setIsAppending(false);
-      setAppendOrderId(null);
-      localStorage.setItem('orderId', order.id);
-      setCart([]);
-      setIsCartOpen(false);
-      router.replace(`/order/${order.id}`);
-    } catch (err) {
-      console.error('UpdateOrder error:', err.message);
-      setError(`Failed to update order: ${err.message}`);
     }
   };
 
   // Toggle cart visibility
   const toggleCart = () => {
-    setIsCartOpen(prev => !prev);
+    setIsCartOpen((prev) => !prev);
   };
 
   if (isLoading) return <div className="text-center mt-10" role="status">Loading menu...</div>;
@@ -201,7 +241,7 @@ export default function Table() {
       <div className="flex items-center justify-center gap-2 mb-6">
         <CakeIcon className="h-6 w-6 text-blue-500" />
         <h1 className="text-2xl font-bold text-gray-800" aria-label="Welcome to Gsaheb Cafe">
-          Welcome to Valtri Labs Cafe
+          Welcome to Gsaheb Cafe
         </h1>
         <CakeIcon className="h-6 w-6 text-blue-500" />
       </div>
@@ -209,7 +249,7 @@ export default function Table() {
       {/* Category Filters */}
       <div className="mb-6 overflow-x-auto whitespace-nowrap pb-2" role="tablist" aria-label="Menu categories">
         <div className="flex gap-2">
-          {categories.map(category => (
+          {categories.map((category) => (
             <button
               key={category}
               className={`px-4 py-2 rounded-lg text-sm font-medium ${
@@ -229,16 +269,9 @@ export default function Table() {
       </div>
 
       {/* Menu Items Grid */}
-      <div
-        id="menu-items"
-        className="grid grid-cols-2 md:grid-cols-3 gap-4"
-        role="region"
-        aria-live="polite"
-      >
-        {filteredMenu?.length === 0 ? (
-          <p className="col-span-full text-center text-gray-500">No items in this category.</p>
-        ) : (
-          filteredMenu.map(item => (
+      <div id="menu-items" className="grid grid-cols-2 md:grid-cols-3 gap-4" role="region" aria-live="polite">
+        {filteredMenu && filteredMenu.length > 0 ? (
+          filteredMenu.map((item) => (
             <div
               key={item.id}
               className="bg-white p-4 rounded-lg shadow-md hover:shadow-lg transition-shadow"
@@ -253,9 +286,7 @@ export default function Table() {
               <p className="text-sm font-medium">₹{item.price.toFixed(2)}</p>
               <button
                 className={`mt-2 w-full py-2 rounded-lg text-white transition-colors duration-300 ${
-                  addedItems[item.id]
-                    ? 'bg-blue-500 hover:bg-blue-600'
-                    : 'bg-green-500 hover:bg-green-600'
+                  addedItems[item.id] ? 'bg-blue-500 hover:bg-blue-600' : 'bg-green-500 hover:bg-green-600'
                 }`}
                 onClick={() => addToCart(item)}
                 aria-label={addedItems[item.id] ? `${item.name} added to cart` : `Add ${item.name} to cart`}
@@ -264,6 +295,8 @@ export default function Table() {
               </button>
             </div>
           ))
+        ) : (
+          <p className="col-span-full text-center text-gray-500">No items in this category.</p>
         )}
       </div>
 
@@ -274,6 +307,7 @@ export default function Table() {
         onPlaceOrder={isAppending ? updateOrder : placeOrder}
         onClose={() => setIsCartOpen(false)}
         isOpen={isCartOpen}
+        menu={menu || []}
       />
     </div>
   );
