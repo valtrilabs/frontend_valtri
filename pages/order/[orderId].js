@@ -112,14 +112,9 @@ export default function Order() {
         </ul>
         <p className="font-semibold">Total: ₹{total.toFixed(2)}</p>
         <p className="mt-4">Status: {order.status}</p>
+        <p className="text-green-600 font-semibold text-lg mb-2"> Thank you for ordering! Please wait 10 minutes for your order to arrive.</p>
+        <p className="text-gray-700 text-sm">To edit your current order or to order new items, please contact our waiter.</p>
       </div>
-      <p className="text-green-600 font-semibold text-lg mb-2">
-  Thank you for ordering! Please wait 10 minutes for your order to arrive.
-</p>
-<p className="text-gray-700 text-sm">
-  To edit your current order or to order new items, please contact our waiter.
-</p>
-
     </div>
   );
 }
