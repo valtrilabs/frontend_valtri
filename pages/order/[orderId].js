@@ -93,12 +93,8 @@ export default function Order() {
           <p className="text-sm text-gray-500">Date and Time: {formattedDate}</p>
           <p className="text-sm text-gray-500">Table Number: {order.tables?.number || order.table_id}</p>
         </div>
-        <p className="text-green-600 font-semibold mb-4">
-          Thank you for ordering! Please wait 10 minutes for your order to arrive.
-        </p>
-        <p className="text-green-600 font-semibold mb-4">
-          To Edit your current order or to order new items, Please contact our waiter. 
-        </p>
+        <p className="text-green-600 font-semibold text-lg mb-2"> Thank you for ordering! Please wait 10 minutes for your order to arrive.</p>
+        <p className="text-gray-700 text-sm">To edit your current order or to order new items, please contact our waiter.</p>
         <h2 className="font-semibold text-lg mb-2">Ordered Food Items</h2>
         <ul className="mb-4">
           {order.items.map((item, index) => (
@@ -112,8 +108,6 @@ export default function Order() {
         </ul>
         <p className="font-semibold">Total: ₹{total.toFixed(2)}</p>
         <p className="mt-4">Status: {order.status}</p>
-        <p className="text-green-600 font-semibold text-lg mb-2"> Thank you for ordering! Please wait 10 minutes for your order to arrive.</p>
-        <p className="text-gray-700 text-sm">To edit your current order or to order new items, please contact our waiter.</p>
       </div>
     </div>
   );
