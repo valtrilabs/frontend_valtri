@@ -4,7 +4,7 @@ import BottomCart from '../components/BottomCart';
 import { CakeIcon } from '@heroicons/react/24/outline';
 import { format, add } from 'date-fns';
 
-const fetcher = (url) => fetch(url).then(res => res.json());
+const fetcher = (url) => fetch(url).then((res) => res.json());
 
 export default function Waiter() {
   const [activeTab, setActiveTab] = useState('take-order');
@@ -32,7 +32,10 @@ export default function Waiter() {
   const { data: menu, error: menuError, isLoading: isMenuLoading } = useSWR(`${apiUrl}/api/menu`, fetcher);
 
   // Fetch pending orders
-  const { data: ordersData, error: ordersError, isLoading: isOrdersLoading, mutate: mutateOrders } = useSWR(`${apiUrl}/api/orders?status=pending`, fetcher);
+  const { data: ordersData, error: ordersError, isLoading: isOrdersLoading, mutate: mutateOrders } = useSWR(
+    `${apiUrl}/api/orders?status=pending`,
+    fetcher
+  );
 
   // Update pending orders
   useEffect(() => {
@@ -55,30 +58,26 @@ export default function Waiter() {
   }, [menuError]);
 
   // Unique categories
-  const categories = ['All', ...new Set(menu?.map(item => item.category).filter(Boolean))];
+  const categories = ['All', ...new Set(menu?.map((item) => item.category).filter(Boolean))];
 
-  // Filtered menu (by category and search)
+  // Filtered menu
   const filteredMenu = menu
     ? menu
-        .filter(item => selectedCategory === 'All' || item.category === selectedCategory)
-        .filter(item =>
-          item.name.toLowerCase().includes(searchQuery.toLowerCase())
-        )
+        .filter((item) => selectedCategory === 'All' || item.category === selectedCategory)
+        .filter((item) => item.name.toLowerCase().includes(searchQuery.toLowerCase()))
     : [];
 
   // Add to cart
   const addToCart = (item) => {
-    setAddedItems(prev => ({ ...prev, [item.id]: true }));
+    setAddedItems((prev) => ({ ...prev, [item.id]: true }));
     setTimeout(() => {
-      setAddedItems(prev => ({ ...prev, [item.id]: false }));
+      setAddedItems((prev) => ({ ...prev, [item.id]: false }));
     }, 1000);
-    setCart(prevCart => {
-      const existingItem = prevCart.find(cartItem => cartItem.item_id === item.id);
+    setCart((prevCart) => {
+      const existingItem = prevCart.find((cartItem) => cartItem.item_id === item.id);
       if (existingItem) {
-        return prevCart.map(cartItem =>
-          cartItem.item_id === item.id
-            ? { ...cartItem, quantity: (cartItem.quantity || 1) + 1 }
-            : cartItem
+        return prevCart.map((cartItem) =>
+          cartItem.item_id === item.id ? { ...cartItem, quantity: (cartItem.quantity || 1) + 1 } : cartItem
         );
       }
       return [
@@ -90,7 +89,6 @@ export default function Waiter() {
           category: item.category,
           image_url: item.image_url,
           quantity: 1,
-          note: '',
         },
       ];
     });
@@ -104,35 +102,40 @@ export default function Waiter() {
       return setError('Table number must be between 1 and 30.');
     }
     if (cart.length === 0) return setError('Cart is empty.');
-    try {
-      setError(null);
-      const response = await fetch(`${apiUrl}/api/orders`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          table_id: parseInt(tableNumber),
-          items: cart,
-          notes: orderNote || null,
-        }),
-        signal: AbortSignal.timeout(30000),
-      });
-      const order = await response.json();
-      if (!response.ok || !order.id) {
-        throw new Error(order.error || `HTTP ${response.status}`);
+    const maxRetries = 3;
+    let attempts = 0;
+    while (attempts < maxRetries) {
+      try {
+        setError(null);
+        const response = await fetch(`${apiUrl}/api/orders`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            table_id: parseInt(tableNumber),
+            items: cart,
+            notes: orderNote || null,
+          }),
+          signal: AbortSignal.timeout(30000),
+        });
+        const order = await response.json();
+        if (!response.ok || !order.id) {
+          throw new Error(order.error || `HTTP ${response.status}`);
+        }
+        setCart([]);
+        setTableNumber('');
+        setOrderNote('');
+        setIsCartOpen(false);
+        setError('Order placed successfully!');
+        mutateOrders();
+        return;
+      } catch (err) {
+        attempts++;
+        if (attempts === maxRetries) {
+          setError(`Failed to place order after ${maxRetries} attempts: ${err.message}`);
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1000));
       }
-      setCart([]);
-      setTableNumber('');
-      setOrderNote('');
-      setIsCartOpen(false);
-      setError('Order placed successfully!');
-      // Revalidate pending orders
-      mutateOrders();
-      // Fallback: Reload page after 3 seconds if mutate doesn't update the UI
-      setTimeout(() => {
-        window.location.reload();
-      }, 3000);
-    } catch (err) {
-      setError(`Failed to place order: ${err.message}`);
     }
   };
 
@@ -175,35 +178,40 @@ export default function Waiter() {
   const saveEditedOrder = async () => {
     if (!editingOrder) return;
     if (cart.length === 0) return setError('Cart is empty.');
-    try {
-      setError(null);
-      const response = await fetch(`${apiUrl}/api/orders/${editingOrder.orderId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          items: cart,
-          notes: orderNote || null,
-        }),
-        signal: AbortSignal.timeout(30000),
-      });
-      const order = await response.json();
-      if (!response.ok || !order.id) {
-        throw new Error(order.error || `HTTP ${response.status}`);
+    const maxRetries = 3;
+    let attempts = 0;
+    while (attempts < maxRetries) {
+      try {
+        setError(null);
+        const response = await fetch(`${apiUrl}/api/orders/${editingOrder.orderId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            items: cart,
+            notes: orderNote || null,
+          }),
+          signal: AbortSignal.timeout(30000),
+        });
+        const order = await response.json();
+        if (!response.ok || !order.id) {
+          throw new Error(order.error || `HTTP ${response.status}`);
+        }
+        setCart([]);
+        setTableNumber('');
+        setOrderNote('');
+        setIsCartOpen(false);
+        setEditingOrder(null);
+        setError('Order updated successfully!');
+        mutateOrders();
+        return;
+      } catch (err) {
+        attempts++;
+        if (attempts === maxRetries) {
+          setError(`Failed to update order after ${maxRetries} attempts: ${err.message}`);
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1000));
       }
-      setCart([]);
-      setTableNumber('');
-      setOrderNote('');
-      setIsCartOpen(false);
-      setEditingOrder(null);
-      setError('Order updated successfully!');
-      // Revalidate pending orders
-      mutateOrders();
-      // Fallback: Reload page after 3 seconds if mutate doesn't update the UI
-      setTimeout(() => {
-        window.location.reload();
-      }, 3000);
-    } catch (err) {
-      setError(`Failed to update order: ${err.message}`);
     }
   };
 
@@ -212,9 +220,9 @@ export default function Waiter() {
     window.location.reload();
   };
 
-  // Filtered pending orders
+  // Filtered orders
   const filteredOrders = filterTableNumber
-    ? pendingOrders.filter(order => order.table_id.toString() === filterTableNumber)
+    ? pendingOrders.filter((order) => order.table_id.toString() === filterTableNumber)
     : pendingOrders;
 
   if (isMenuLoading && isOrdersLoading) {
@@ -222,9 +230,9 @@ export default function Waiter() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4">
+    <div className="min-h-screen bg-gray-50 p-4 bg-gray-50">
       {/* Header */}
-      <div className="flex items-center justify-center gap-2 mb-6">
+      <div className="flex items-center items-center gap-2 mb">
         <CakeIcon className="h-6 w-6 text-blue-500" />
         <h1 className="text-2xl font-bold text-gray-800" aria-label="Waiter Interface for Gsaheb Cafe">
           Waiter Interface - Gsaheb Cafe
@@ -292,12 +300,12 @@ export default function Waiter() {
 
           {/* Search Bar */}
           <div className="mb-6">
-            <label htmlFor="search-menu" className="block text-sm font-semibold text-gray-800 mb-2">
-              Search Menu Items
+            <label htmlFor="search-bar" className="block text-sm font-semibold text-gray-800 mb-2">
+              Search Menu
             </label>
             <input
               type="text"
-              id="search-menu"
+              id="search-bar"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full p-3 rounded-lg border border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 bg-white text-gray-800 placeholder-gray-400"
@@ -308,7 +316,7 @@ export default function Waiter() {
           {/* Category Filters */}
           <div className="mb-6 overflow-x-auto whitespace-nowrap pb-2" role="tablist" aria-label="Menu categories">
             <div className="flex gap-2">
-              {categories.map(category => (
+              {categories.map((category) => (
                 <button
                   key={category}
                   className={`px-4 py-2 rounded-lg text-sm font-medium ${
@@ -331,7 +339,7 @@ export default function Waiter() {
             {filteredMenu.length === 0 ? (
               <p className="col-span-full text-center text-gray-500">No items found.</p>
             ) : (
-              filteredMenu.map(item => (
+              filteredMenu.map((item) => (
                 <div
                   key={item.id}
                   className="bg-white p-4 rounded-lg shadow-md hover:shadow-lg transition-shadow"
@@ -406,7 +414,7 @@ export default function Waiter() {
                 {filteredOrders.length === 0 ? (
                   <p className="text-center text-gray-500">No pending orders.</p>
                 ) : (
-                  filteredOrders.map(order => (
+                  filteredOrders.map((order) => (
                     <div key={order.id} className="bg-white p-6 rounded-lg shadow">
                       <div className="mb-4">
                         <p className="text-lg font-semibold">Order #{order.order_number || order.id}</p>
@@ -479,5 +487,3 @@ export default function Waiter() {
     </div>
   );
 }
-
-//force deploy
