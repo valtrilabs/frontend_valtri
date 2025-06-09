@@ -16,18 +16,42 @@ export default function Table() {
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [error, setError] = useState(null);
-  const [addedItems, setAddedItems] = useState({}); // Track items showing "Added"
+  const [addedItems, setAddedItems] = useState({});
+  const [isOnCafeWifi, setIsOnCafeWifi] = useState(false);
+  const [wifiCheckLoading, setWifiCheckLoading] = useState(true);
+
+  // Check Wi-Fi status
+  useEffect(() => {
+    async function checkWifiStatus() {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
+        const response = await fetch(`${apiUrl}/api/check-wifi`, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        if (!response.ok) {
+          throw new Error('Not on café Wi-Fi');
+        }
+        const data = await response.json();
+        setIsOnCafeWifi(data.isOnCafeWifi);
+      } catch (err) {
+        console.error('Wi-Fi check error:', err.message);
+        setIsOnCafeWifi(false);
+      } finally {
+        setWifiCheckLoading(false);
+      }
+    }
+    checkWifiStatus();
+  }, []);
 
   // Check if user has an active pending order
   useEffect(() => {
-    // Clear localStorage on page load to prevent stale data
     localStorage.removeItem('orderId');
     localStorage.removeItem('appendOrder');
 
     async function checkActiveOrder() {
       if (!id) return;
       try {
-        // Check for pending orders for this table
         const { data, error } = await supabase
           .from('orders')
           .select('id, status')
@@ -39,7 +63,7 @@ export default function Table() {
           console.error('Error checking orders:', error.message);
           throw error;
         }
-        console.log('Pending orders found for table', id, ':', data); // Debug log
+        console.log('Pending orders found for table', id, ':', data);
         if (data.length > 0) {
           const order = data[0];
           console.log('Pending order found, redirecting to /order/', order.id);
@@ -68,7 +92,10 @@ export default function Table() {
 
   // Fetch menu items
   const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
-  const { data: menu, error: fetchError, isLoading } = useSWR(`${apiUrl}/api/menu`, fetcher);
+  const { data: menu, error: fetchError, isLoading } = useSWR(
+    isOnCafeWifi ? `${apiUrl}/api/menu` : null,
+    fetcher
+  );
 
   // Unique categories
   const categories = ['All', ...new Set(menu?.map(item => item.category).filter(Boolean))];
@@ -88,7 +115,7 @@ export default function Table() {
     setAddedItems(prev => ({ ...prev, [item.id]: true }));
     setTimeout(() => {
       setAddedItems(prev => ({ ...prev, [item.id]: false }));
-    }, 1000); // Show "Added" for 1 second
+    }, 1000);
     setCart(prevCart => {
       const existingItem = prevCart.find(cartItem => cartItem.item_id === item.id);
       if (existingItem) {
@@ -178,12 +205,20 @@ export default function Table() {
     setIsCartOpen(prev => !prev);
   };
 
+  if (wifiCheckLoading) return <div className="text-center mt-10" role="status">Checking network...</div>;
+  if (!isOnCafeWifi) return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-100">
+      <div className="text-center">
+        <h1 className="text-2xl font-bold mb-4">Connect to Café Wi-Fi</h1>
+        <p className="text-gray-600">Please connect to the café's Wi-Fi network to view the menu and place an order.</p>
+      </div>
+    </div>
+  );
   if (isLoading) return <div className="text-center mt-10" role="status">Loading menu...</div>;
   if (error) return <div className="text-center mt-10 text-red-500" role="alert">{error}</div>;
 
   return (
     <div className="min-h-screen bg-gray-50 p-4 relative">
-      {/* Top-Right Cart Icon */}
       {cart.length > 0 && (
         <button
           className="fixed top-4 right-4 bg-blue-500 text-white p-2 rounded-full shadow-lg hover:bg-blue-600 z-50"
@@ -197,16 +232,14 @@ export default function Table() {
         </button>
       )}
 
-      {/* Welcome Message */}
       <div className="flex items-center justify-center gap-2 mb-6">
         <CakeIcon className="h-6 w-6 text-blue-500" />
-        <h1 className="text-2xl font-bold text-gray-800" aria-label="Welcome to Gsaheb Cafe">
+        <h1 className="text-2xl font-bold text-gray-800" aria-label="Welcome to Valtri Labs Cafe">
           Welcome to Valtri Labs Cafe
         </h1>
         <CakeIcon className="h-6 w-6 text-blue-500" />
       </div>
 
-      {/* Category Filters */}
       <div className="mb-6 overflow-x-auto whitespace-nowrap pb-2" role="tablist" aria-label="Menu categories">
         <div className="flex gap-2">
           {categories.map(category => (
@@ -228,7 +261,6 @@ export default function Table() {
         </div>
       </div>
 
-      {/* Menu Items Grid */}
       <div
         id="menu-items"
         className="grid grid-cols-2 md:grid-cols-3 gap-4"
@@ -267,13 +299,14 @@ export default function Table() {
         )}
       </div>
 
-      {/* Bottom Cart */}
       <BottomCart
         cart={cart}
         setCart={setCart}
         onPlaceOrder={isAppending ? updateOrder : placeOrder}
         onClose={() => setIsCartOpen(false)}
         isOpen={isCartOpen}
+        tableNumber={id}
+        menu={menu}
       />
     </div>
   );
