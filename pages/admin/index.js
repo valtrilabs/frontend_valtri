@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../../lib/supabase';
+import { format, add } from 'date-fns';
 import {
   PrinterIcon,
   ChartBarIcon,
@@ -14,7 +15,6 @@ import {
 } from '@heroicons/react/24/outline';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
-import { format } from 'date-fns';
 import PropTypes from 'prop-types';
 
 export default function Admin() {
@@ -66,9 +66,17 @@ export default function Admin() {
     localStorage.setItem('activeTab', activeTab);
   }, [activeTab]);
 
-  // Simplified date formatting, assuming created_at is in IST
-  const formatToIST = (date) => format(new Date(date), 'dd/MM/yyyy HH:mm:ss');
-  const formatToISTDateOnly = (date) => format(new Date(date), 'dd/MM/yyyy');
+  // Convert UTC-parsed created_at to IST for display
+  const formatToIST = (date) => {
+    const utcDate = new Date(date);
+    const istDate = add(utcDate, { hours: 5, minutes: 30 });
+    return format(istDate, 'dd/MM/yyyy HH:mm:ss');
+  };
+  const formatToISTDateOnly = (date) => {
+    const utcDate = new Date(date);
+    const istDate = add(utcDate, { hours: 5, minutes: 30 });
+    return format(istDate, 'dd/MM/yyyy');
+  };
 
   useEffect(() => {
     const checkSession = async () => {
