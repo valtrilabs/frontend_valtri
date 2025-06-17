@@ -529,154 +529,316 @@ export default function Admin() {
     }
   };
 
+  // const printBill = (order) => {
+  //   const printWindow = window.open('', '_blank', 'width=400,height=600');
+  //   if (!printWindow) {
+  //     setError('Failed to open print window. Please allow pop-ups for this site.');
+  //     return;
+  //   }
+
+  //   const total = order.items.reduce((sum, item) => sum + (item.price || 0) * (item.quantity || 1), 0);
+  //   const formattedDate = formatToIST(new Date(order.created_at));
+
+  //   printWindow.document.write(`
+  //     <!DOCTYPE html>
+  //     <html>
+  //       <head>
+  //         <title>Receipt - Order #${order.order_number || order.id}</title>
+  //         <style>
+  //           body {
+  //             margin: 0;
+  //             padding: 0;
+  //             font-family: Arial, sans-serif;
+  //             font-size: 14px;
+  //             line-height: 1.4;
+  //             color: #000;
+  //           }
+  //           .receipt {
+  //             width: 300px;
+  //             padding: 10px;
+  //             margin: 0 auto;
+  //             background: white;
+  //           }
+  //           .header {
+  //             text-align: center;
+  //             margin-bottom: 10px;
+  //           }
+  //           .header h1 {
+  //             font-size: 20px;
+  //             font-weight: bold;
+  //             margin: 0;
+  //           }
+  //           .header p {
+  //             margin: 5px 0;
+  //           }
+  //           .divider {
+  //             border-top: 1px dashed #000;
+  //             margin: 10px 0;
+  //           }
+  //           table {
+  //             width: 100%;
+  //             border-collapse: collapse;
+  //           }
+  //           th,
+  //           td {
+  //             padding: 5px 0;
+  //           }
+  //           th.right,
+  //           td.right {
+  //             text-align: right;
+  //           }
+  //           .total {
+  //             display: flex;
+  //             justify-content: space-between;
+  //             font-weight: bold;
+  //             margin-top: 10px;
+  //           }
+  //           .footer {
+  //             text-align: center;
+  //             margin-top: 10px;
+  //           }
+  //           @media print {
+  //             body * {
+  //               visibility: hidden;
+  //             }
+  //             .receipt,
+  //             .receipt * {
+  //               visibility: visible;
+  //             }
+  //             .receipt {
+  //               position: absolute;
+  //               left: 0;
+  //               top: 0;
+  //               width: 300px;
+  //               margin: 0;
+  //               padding: 10px;
+  //             }
+  //             @page {
+  //               size: 80mm auto;
+  //               margin: 0;
+  //             }
+  //           }
+  //         </style>
+  //       </head>
+  //       <body>
+  //         <div class="receipt">
+  //           <div class="header">
+  //             <h1>Gsaheb Cafe</h1>
+  //             <p>Order #${order.order_number || order.id}</p>
+  //             <p>Table ${order.tables?.number || order.table_id || 'N/A'}</p>
+  //             <p>Date: ${formattedDate}</p>
+  //             <p>Payment Method: ${order.payment_type || 'N/A'}</p>
+  //           </div>
+  //           <div class="divider"></div>
+  //           <table>
+  //             <thead>
+  //               <tr>
+  //                 <th>Item</th>
+  //                 <th class="right">Qty</th>
+  //                 <th class="right">Price</th>
+  //               </tr>
+  //             </thead>
+  //             <tbody>
+  //               ${order.items
+  //                 .map(
+  //                   (item) => `
+  //                 <tr>
+  //                   <td style="max-width: 180px; word-break: break-word;">${item.name || 'N/A'}</td>
+  //                   <td class="right">${item.quantity || 1}</td>
+  //                   <td class="right">₹${((item.price || 0) * (item.quantity || 1)).toFixed(2)}</td>
+  //                 </tr>
+  //               `
+  //                 )
+  //                 .join('')}
+  //             </tbody>
+  //           </table>
+  //           <div class="divider"></div>
+  //           <div class="total">
+  //             <span>Total</span>
+  //             <span>₹${total.toFixed(2)}</span>
+  //           </div>
+  //           <div class="footer">
+  //             <p>Thank you for dining with us!</p>
+  //           </div>
+  //         </div>
+  //         <script>
+  //           try {
+  //             window.onload = () => {
+  //               window.print();
+  //               window.onafterprint = () => window.close();
+  //             };
+  //           } catch (err) {
+  //             console.error('Print error:', err);
+  //           }
+  //         </script>
+  //       </body>
+  //     </html>
+  //   `);
+
+  //   printWindow.document.close();
+  // };
+
   const printBill = (order) => {
-    const printWindow = window.open('', '_blank', 'width=400,height=600');
-    if (!printWindow) {
-      setError('Failed to open print window. Please allow pop-ups for this site.');
-      return;
-    }
+  const printWindow = window.open('', '_blank', 'width=400,height=600');
+  if (!printWindow) {
+    setError('Failed to open print window. Please allow pop-ups for this site.');
+    return;
+  }
 
-    const total = order.items.reduce((sum, item) => sum + (item.price || 0) * (item.quantity || 1), 0);
-    const formattedDate = formatToIST(new Date(order.created_at));
+  const total = order.items.reduce((sum, item) => sum + (item.price || 0) * (item.quantity || 1), 0);
+  const formattedDate = formatToIST(new Date(order.created_at));
 
-    printWindow.document.write(`
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>Receipt - Order #${order.order_number || order.id}</title>
-          <style>
-            body {
-              margin: 0;
-              padding: 0;
-              font-family: Arial, sans-serif;
-              font-size: 14px;
-              line-height: 1.4;
-              color: #000;
+  printWindow.document.write(`
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>Receipt - Order #${order.order_number || order.id}</title>
+        <style>
+          body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+            font-size: 10px;
+            line-height: 1.2;
+            color: #000;
+            width: 80mm;
+          }
+          .receipt {
+            width: 72mm;
+            padding: 4mm;
+            margin: 0 auto;
+            background: white;
+          }
+          .header {
+            text-align: center;
+            margin-bottom: 5px;
+          }
+          .header h1 {
+            font-size: 14px;
+            font-weight: bold;
+            margin: 0;
+          }
+          .header p {
+            margin: 2px 0;
+          }
+          .divider {
+            border-top: 1px dashed #000;
+            margin: 5px 0;
+          }
+          table {
+            width: 100%;
+            border-collapse: collapse;
+          }
+          th, td {
+            padding: 2px 0;
+            font-weight: bold;
+          }
+          th.right, td.right {
+            text-align: right;
+          }
+          .item-name {
+            width: 50%; /* ~24 chars */
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+          }
+          .quantity {
+            width: 15%; /* ~7 chars */
+            text-align: center;
+          }
+          .price {
+            width: 35%; /* ~17 chars */
+            text-align: right;
+          }
+          .total {
+            display: flex;
+            justify-content: space-between;
+            font-weight: bold;
+            margin-top: 5px;
+          }
+          .footer {
+            text-align: center;
+            margin-top: 5px;
+          }
+          @media print {
+            body * {
+              visibility: hidden;
+            }
+            .receipt, .receipt * {
+              visibility: visible;
             }
             .receipt {
-              width: 300px;
-              padding: 10px;
-              margin: 0 auto;
-              background: white;
+              position: absolute;
+              left: 0;
+              top: 0;
+              width: 72mm;
+              margin: 0;
+              padding: 4mm;
             }
-            .header {
-              text-align: center;
-              margin-bottom: 10px;
-            }
-            .header h1 {
-              font-size: 20px;
-              font-weight: bold;
+            @page {
+              size: 80mm auto;
               margin: 0;
             }
-            .header p {
-              margin: 5px 0;
-            }
-            .divider {
-              border-top: 1px dashed #000;
-              margin: 10px 0;
-            }
-            table {
-              width: 100%;
-              border-collapse: collapse;
-            }
-            th,
-            td {
-              padding: 5px 0;
-            }
-            th.right,
-            td.right {
-              text-align: right;
-            }
-            .total {
-              display: flex;
-              justify-content: space-between;
-              font-weight: bold;
-              margin-top: 10px;
-            }
-            .footer {
-              text-align: center;
-              margin-top: 10px;
-            }
-            @media print {
-              body * {
-                visibility: hidden;
-              }
-              .receipt,
-              .receipt * {
-                visibility: visible;
-              }
-              .receipt {
-                position: absolute;
-                left: 0;
-                top: 0;
-                width: 300px;
-                margin: 0;
-                padding: 10px;
-              }
-              @page {
-                size: 80mm auto;
-                margin: 0;
-              }
-            }
-          </style>
-        </head>
-        <body>
-          <div class="receipt">
-            <div class="header">
-              <h1>Gsaheb Cafe</h1>
-              <p>Order #${order.order_number || order.id}</p>
-              <p>Table ${order.tables?.number || order.table_id || 'N/A'}</p>
-              <p>Date: ${formattedDate}</p>
-              <p>Payment Method: ${order.payment_type || 'N/A'}</p>
-            </div>
-            <div class="divider"></div>
-            <table>
-              <thead>
-                <tr>
-                  <th>Item</th>
-                  <th class="right">Qty</th>
-                  <th class="right">Price</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${order.items
-                  .map(
-                    (item) => `
-                  <tr>
-                    <td style="max-width: 180px; word-break: break-word;">${item.name || 'N/A'}</td>
-                    <td class="right">${item.quantity || 1}</td>
-                    <td class="right">₹${((item.price || 0) * (item.quantity || 1)).toFixed(2)}</td>
-                  </tr>
-                `
-                  )
-                  .join('')}
-              </tbody>
-            </table>
-            <div class="divider"></div>
-            <div class="total">
-              <span>Total</span>
-              <span>₹${total.toFixed(2)}</span>
-            </div>
-            <div class="footer">
-              <p>Thank you for dining with us!</p>
-            </div>
+          }
+        </style>
+      </head>
+      <body>
+        <div class="receipt">
+          <div class="header">
+            <h1>Gsaheb Cafe</h1>
+            <p>Order #${order.order_number || order.id}</p>
+            <p>Table ${order.tables?.number || order.table_id || 'N/A'}</p>
+            <p>Date: ${formattedDate}</p>
+            <p>Payment Method: ${order.payment_type || 'N/A'}</p>
           </div>
-          <script>
-            try {
-              window.onload = () => {
-                window.print();
-                window.onafterprint = () => window.close();
-              };
-            } catch (err) {
-              console.error('Print error:', err);
-            }
-          </script>
-        </body>
-      </html>
-    `);
+          <div class="divider"></div>
+          <table>
+            <thead>
+              <tr>
+                <th class="item-name">Item</th>
+                <th class="quantity">Qty</th>
+                <th class="price">Price</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${order.items
+                .map(
+                  (item) => `
+                    <tr>
+                      <td class="item-name">${item.name || 'N/A'}</td>
+                      <td class="quantity">${item.quantity || 1}</td>
+                      <td class="price">₹${((item.price || 0) * (item.quantity || 1)).toFixed(2)}</td>
+                    </tr>
+                  `
+                )
+                .join('')}
+            </tbody>
+          </table>
+          <div class="divider"></div>
+          <div class="total">
+            <span>Total</span>
+            <span>₹${total.toFixed(2)}</span>
+          </div>
+          <div class="footer">
+            <p>Thank you for dining with us!</p>
+          </div>
+        </div>
+        <script>
+          try {
+            window.onload = () => {
+              window.print();
+              window.onafterprint = () => window.close();
+            };
+          } catch (err) {
+            console.error('Print error:', err);
+          }
+        </script>
+      </body>
+    </html>
+  `);
 
-    printWindow.document.close();
-  };
+  printWindow.document.close();
+};
 
   const exportOrders = () => {
     const startDate = new Date(exportFilters.startDate);
