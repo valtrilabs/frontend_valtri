@@ -151,7 +151,6 @@ export default function Admin() {
 
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || '';
-      // Define date range in IST
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
       const todayEnd = new Date();
@@ -198,14 +197,13 @@ export default function Admin() {
     if (isLoggedIn && activeTab === 'Data Analytics') {
       fetchAnalytics();
     }
-  }, [isLoggedIn, activeTab]);
+  }, [isLoggedIn, activeTab, fetchAnalytics]);
 
   useEffect(() => {
     async function fetchRevenueData() {
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || '';
         const now = new Date();
-        // Weekly revenue (last 7 days)
         const weekStart = new Date(now);
         weekStart.setDate(now.getDate() - 7);
         weekStart.setHours(0, 0, 0, 0);
@@ -222,7 +220,6 @@ export default function Admin() {
         const weekData = await weekResponse.json();
         setWeeklyRevenue(weekData.totalRevenue || 0);
 
-        // Monthly revenue (last 30 days)
         const monthStart = new Date(now);
         monthStart.setDate(now.getDate() - 30);
         monthStart.setHours(0, 0, 0, 0);
@@ -235,7 +232,7 @@ export default function Admin() {
           aggregate: 'revenue',
         });
         const monthResponse = await fetch(`${apiUrl}/api/admin/orders/history?${monthParams}`);
-        if (!monthResponse.ok) throw new Error(`HTTP ${monthResponse.status}`);
+        if (!monthResponse.ok) throw new Error(`HTTP ${weekResponse.status}`);
         const monthData = await monthResponse.json();
         setMonthlyRevenue(monthData.totalRevenue || 0);
       } catch (err) {
@@ -615,9 +612,9 @@ export default function Admin() {
             <table>
               <thead>
                 <tr>
-                  <th class="item-name">Item</th>
-                  <th class="quantity">Qty</th>
-                  <th class="price">Price</th>
+                  <th class="item-name" scope="col">Item</th>
+                  <th class="quantity" scope="col">Qty</th>
+                  <th class="price" scope="col">Price</th>
                 </tr>
               </thead>
               <tbody>
@@ -658,17 +655,34 @@ export default function Admin() {
     printWindow.document.close();
   };
 
-  const exportOrders = () => {
-    const startDate = new Date(exportFilters.startDate);
-    startDate.setHours(0, 0, 0, 0);
-    const endDate = new Date(exportFilters.endDate);
-    endDate.setHours(23, 59, 59, 999);
-    const filteredOrders = historyOrders.filter((order) => {
-      const orderDate = new Date(order.created_at);
-      const matchesDate = orderDate >= startDate && orderDate <= endDate;
-      const matchesStatus = exportFilters.statuses.length ? exportFilters.statuses.includes(order.status) : true;
-      return matchesDate && matchesStatus;
-    });
+  const fetchOrdersForExport = async () => {
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || '';
+      const startDate = new Date(exportFilters.startDate);
+      startDate.setHours(0, 0, 0, 0);
+      const endDate = new Date(exportFilters.endDate);
+      endDate.setHours(23, 59, 59, 999);
+      const params = new URLSearchParams({
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString(),
+        statuses: exportFilters.statuses.join(','),
+      });
+      const response = await fetch(`${apiUrl}/api/admin/orders/history?${params}`);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      return data || [];
+    } catch (err) {
+      setError(`Failed to fetch orders for export: ${err.message}`);
+      return [];
+    }
+  };
+
+  const exportOrders = async () => {
+    const filteredOrders = await fetchOrdersForExport();
+    if (filteredOrders.length === 0) {
+      setError('No orders found for the selected filters.');
+      return;
+    }
 
     let csv;
     if (exportType === 'order') {
@@ -730,6 +744,7 @@ export default function Admin() {
                 onChange(newStatuses);
               }}
               className="mr-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              aria-label={`Filter by ${status} status`}
             />
             <span className={`capitalize ${status === 'paid' ? 'text-green-600' : 'text-yellow-600'}`}>
               {status}
@@ -807,6 +822,7 @@ export default function Admin() {
               }`}
               onClick={() => setActiveTab(tab)}
               aria-current={activeTab === tab ? 'page' : undefined}
+              aria-label={`Switch to ${tab} tab`}
             >
               {tab === 'Pending Orders' && <ClipboardDocumentListIcon className="h-5 w-5" />}
               {tab === 'Order History' && <ClockIcon className="h-5 w-5" />}
@@ -850,7 +866,7 @@ export default function Admin() {
               <p className="text-gray-500 text-center text-lg">No pending orders at this moment</p>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                {orders.map((order) => {
+                {[...orders].reverse().map((order) => {
                   const total = order.items.reduce(
                     (sum, item) => sum + (item.price || 0) * (item.quantity || 1),
                     0
@@ -896,13 +912,13 @@ export default function Admin() {
                         <table className="w-full min-w-[320px] table-auto border-collapse">
                           <thead>
                             <tr className="border-b">
-                              <th className="text-left py-2 px-2 md:px-4 text-gray-700 font-medium">
+                              <th scope="col" className="text-left py-2 px-2 md:px-4 text-gray-700 font-medium">
                                 Item
                               </th>
-                              <th className="text-right py-2 px-2 md:px-4 text-gray-700 font-medium">
+                              <th scope="col" className="text-right py-2 px-2 md:px-4 text-gray-700 font-medium">
                                 Qty
                               </th>
-                              <th className="text-right py-2 px-2 md:px-4 text-gray-700 font-medium">
+                              <th scope="col" className="text-right py-2 px-2 md:px-4 text-gray-700 font-medium">
                                 Price
                               </th>
                             </tr>
@@ -984,10 +1000,10 @@ export default function Admin() {
                 <table className="min-w-full mb-4">
                   <thead>
                     <tr className="border-b">
-                      <th className="text-left py-2">Item</th>
-                      <th className="text-right py-2">Qty</th>
-                      <th className="text-right py-2">Price</th>
-                      <th className="text-center py-2">Actions</th>
+                      <th scope="col" className="text-left py-2">Item</th>
+                      <th scope="col" className="text-right py-2">Qty</th>
+                      <th scope="col" className="text-right py-2">Price</th>
+                      <th scope="col" className="text-center py-2">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1129,13 +1145,13 @@ export default function Admin() {
                 <table className="w-full bg-white rounded-lg shadow-md">
                   <thead>
                     <tr className="border-b">
-                      <th className="text-left py-3 px-4">Order ID</th>
-                      <th className="text-center py-3 px-4">Date</th>
-                      <th className="text-center py-3 px-4">Table</th>
-                      <th className="text-right py-3 px-4">Total</th>
-                      <th className="text-left py-3 px-4">Status</th>
-                      <th className="text-left py-3 px-4">Payment Method</th>
-                      <th className="text-center py-3 px-4">Actions</th>
+                      <th scope="col" className="text-left py-3 px-4">Order ID</th>
+                      <th scope="col" className="text-center py-3 px-4">Date</th>
+                      <th scope="col" className="text-center py-3 px-4">Table</th>
+                      <th scope="col" className="text-right py-3 px-4">Total</th>
+                      <th scope="col" className="text-left py-3 px-4">Status</th>
+                      <th scope="col" className="text-left py-3 px-4">Payment Method</th>
+                      <th scope="col" className="text-center py-3 px-4">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1212,7 +1228,7 @@ export default function Admin() {
             <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] mx-2 sm:mx-4 flex flex-col overflow-hidden">
               <div className="p-4 sm:p-6 border-b shrink-0">
                 <h3 className="text-xl font-bold text-gray-900">
-                  Invoice #{viewingOrder.order_number || viewingOrder.id}
+                  Invoice #{viewingOrder.order_number || viewingOrder.id || 'N/A'}
                 </h3>
                 <p className="text-sm text-gray-600 mt-1">
                   {formatToIST(new Date(viewingOrder.created_at))}
@@ -1226,9 +1242,9 @@ export default function Admin() {
                 <table className="w-full min-w-[320px] border-collapse">
                   <thead>
                     <tr className="border-b border-gray-200">
-                      <th className="text-left py-2 pr-3 text-sm font-semibold text-gray-700">Item</th>
-                      <th className="text-right py-2 px-3 text-sm font-semibold text-gray-700">Qty</th>
-                      <th className="text-right py-2 pl-3 text-sm font-semibold text-gray-700">Amount</th>
+                      <th scope="col" className="text-left py-2 pr-3 text-sm font-semibold text-gray-700">Item</th>
+                      <th scope="col" className="text-right py-2 px-3 text-sm font-semibold text-gray-700">Qty</th>
+                      <th scope="col" className="text-right py-2 pl-3 text-sm font-semibold text-gray-700">Amount</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1266,7 +1282,7 @@ export default function Admin() {
                   <button
                     className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition flex items-center gap-1 sm:gap-2 text-sm sm:text-base"
                     onClick={() => printBill(viewingOrder)}
-                    aria-label={`Print invoice for order ${viewingOrder.order_number || viewingOrder.id}`}
+                    aria-label={`Print invoice for order ${viewingOrder.order_number || viewingOrder.id || 'N/A'}`}
                   >
                     <PrinterIcon className="h-4 w-4 sm:h-5 sm:w-5" />
                     Print
@@ -1338,12 +1354,12 @@ export default function Admin() {
             <table className="w-full bg-white rounded-lg shadow-md">
               <thead>
                 <tr className="border-b">
-                  <th className="text-left py-3 px-4">Name</th>
-                  <th className="text-left py-3 px-4">Category</th>
-                  <th className="text-right py-3 px-4">Price</th>
-                  <th className="text-center py-3 px-4">Available</th>
-                  <th className="text-center py-3 px-4">Image</th>
-                  <th className="text-center py-3 px-4">Actions</th>
+                  <th scope="col" className="text-left py-3 px-4">Name</th>
+                  <th scope="col" className="text-left py-3 px-4">Category</th>
+                  <th scope="col" className="text-right py-3 px-4">Price</th>
+                  <th scope="col" className="text-center py-3 px-4">Available</th>
+                  <th scope="col" className="text-center py-3 px-4">Image</th>
+                  <th scope="col" className="text-center py-3 px-4">Actions</th>
                 </tr>
               </thead>
               <tbody>
