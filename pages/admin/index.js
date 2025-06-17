@@ -15,6 +15,7 @@ import {
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import { format, add } from 'date-fns';
+import PropTypes from 'prop-types';
 
 export default function Admin() {
   const router = useRouter();
@@ -79,7 +80,9 @@ export default function Admin() {
 
   useEffect(() => {
     const checkSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
       if (session) setIsLoggedIn(true);
       else router.push('/admin');
     };
@@ -93,7 +96,6 @@ export default function Admin() {
         const response = await fetch(`${apiUrl}/api/admin/orders`);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
-        console.log('Fetched pending orders:', data);
         setOrders(data || []);
       } catch (err) {
         setError(`Failed to fetch orders: ${err.message}`);
@@ -145,7 +147,7 @@ export default function Admin() {
       'average-order-value',
       'total-items-sold',
     ];
-    const analyticsData = { ...analytics }; // Persist previous data
+    const analyticsData = { ...analytics };
 
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || '';
@@ -162,16 +164,13 @@ export default function Admin() {
         let attempts = 0;
         while (attempts < maxRetries) {
           try {
-            console.log(`Fetching ${endpoint}, attempt ${attempts + 1}`);
             const response = await fetch(
               `${apiUrl}/api/admin/analytics/${endpoint}?startDate=${todayStart.toISOString()}&endDate=${todayEnd.toISOString()}`,
               {
                 headers: { 'Content-Type': 'application/json' },
               }
             );
-            if (!response.ok) {
-              throw new Error(`HTTP ${response.status} for ${endpoint}`);
-            }
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const data = await response.json();
             if (endpoint === 'total-orders') analyticsData.totalOrders = data.totalOrders || 0;
             if (endpoint === 'total-revenue') analyticsData.totalRevenue = data.totalRevenue || 0;
@@ -183,7 +182,6 @@ export default function Admin() {
             break;
           } catch (err) {
             attempts++;
-            console.error(`Failed to fetch ${endpoint} (attempt ${attempts}): ${err.message}`);
             if (attempts === maxRetries) {
               setError(`Failed to fetch ${endpoint} data after ${maxRetries} attempts: ${err.message}`);
             }
@@ -191,20 +189,16 @@ export default function Admin() {
           }
         }
       }
-
-      console.log('Fetched analytics:', analyticsData);
       setAnalytics(analyticsData);
     } catch (err) {
-      console.error('Unexpected error in fetchAnalytics:', err);
       setError(`Unexpected error fetching analytics: ${err.message}`);
     } finally {
       setIsLoadingAnalytics(false);
     }
-  };
+  }
 
   useEffect(() => {
     if (isLoggedIn && activeTab === 'Data Analytics') {
-      console.log('Triggering fetchAnalytics for Data Analytics tab');
       fetchAnalytics();
     }
   }, [isLoggedIn, activeTab]);
@@ -214,7 +208,6 @@ export default function Admin() {
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || '';
         const now = new Date();
-
         const weekStart = new Date(now);
         weekStart.setDate(now.getDate() - 7);
         weekStart.setHours(0, 0, 0, 0);
@@ -336,7 +329,7 @@ export default function Admin() {
 
   useEffect(() => {
     if (isLoggedIn && activeTab === 'Order History') fetchHistory();
-  }, [isLoggedIn, activeTab, historyFilters.dateRange, historyFilters.statuses, historyFilters.customStart, historyFilters.customEnd]);
+  }, [isLoggedIn, activeTab, historyFilters]);
 
   const handleLogin = async () => {
     try {
@@ -359,7 +352,6 @@ export default function Admin() {
       setError('Please select a payment method');
       return;
     }
-
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || '';
       const response = await fetch(`${apiUrl}/api/orders/${selectedOrderId}/pay`, {
@@ -383,21 +375,22 @@ export default function Admin() {
   };
 
   const updateQuantity = (index, delta) => {
-    const newItems = [...editedItems];
-    const newQuantity = Math.max(1, (newItems[index].quantity || 1) + delta);
-    newItems[index] = { ...newItems[index], quantity: newQuantity };
-    setEditedItems(newItems);
+    setEditedItems((prev) => {
+      const newItems = [...prev];
+      newItems[index] = { ...newItems[index], quantity: Math.max(1, (newItems[index].quantity || 1) + delta) };
+      return newItems;
+    });
   };
 
   const removeItem = (index) => {
-    setEditedItems(editedItems.filter((_, i) => i !== index));
+    setEditedItems((prev) => prev.filter((_, i) => i !== index));
   };
 
   const addItem = (itemId) => {
     const menuItem = menuItems.find((item) => item.id === parseInt(itemId));
     if (menuItem && !editedItems.some((item) => item.item_id === menuItem.id)) {
-      setEditedItems([
-        ...editedItems,
+      setEditedItems((prev) => [
+        ...prev,
         {
           item_id: menuItem.id,
           name: menuItem.name,
@@ -450,7 +443,7 @@ export default function Admin() {
         ])
         .select();
       if (error) throw error;
-      setMenuItems([...menuItems, data[0]]);
+      setMenuItems((prev) => [...prev, data[0]]);
       setNewItem({ name: '', category: '', price: '', is_available: true });
     } catch (err) {
       setError(`Failed to add item: ${err.message}`);
@@ -461,7 +454,7 @@ export default function Admin() {
     try {
       const { error } = await supabase.from('menu_items').delete().eq('id', itemId);
       if (error) throw error;
-      setMenuItems(menuItems.filter((item) => item.id !== itemId));
+      setMenuItems((prev) => prev.filter((item) => item.id !== itemId));
     } catch (err) {
       setError(`Failed to remove item: ${err.message}`);
     }
@@ -545,9 +538,6 @@ export default function Admin() {
         <head>
           <title>Receipt - Order #${order.order_number || order.id}</title>
           <style>
-            * {
-              box-sizing: border-box;
-            }
             body {
               margin: 0;
               padding: 0;
@@ -569,12 +559,10 @@ export default function Admin() {
             }
             .header h1 {
               font-size: 14px;
-              font-weight: bold;
               margin: 0;
             }
             .header p {
               margin: 2px 0;
-              font-weight: bold;
             }
             .divider {
               border-top: 1px dashed #000;
@@ -586,31 +574,27 @@ export default function Admin() {
               table-layout: fixed;
             }
             th, td {
-              padding: 1px 0;
-              font-weight: bold;
+              padding: 2px;
             }
             th.right, td.right {
               text-align: right;
             }
             .item-name {
-              width: 45%; /* ~22 chars */
+              width: 45%;
               white-space: nowrap;
               overflow: hidden;
               text-overflow: ellipsis;
-              max-width: 0;
             }
             .quantity {
-              width: 15%; /* ~7 chars */
+              width: 15%;
               text-align: center;
             }
             .price {
-              width: 40%; /* ~19 chars */
+              width: 40%;
               text-align: right;
             }
             .total-table {
               width: 100%;
-              border-collapse: collapse;
-              table-layout: fixed;
               margin-top: 5px;
             }
             .footer {
@@ -618,12 +602,6 @@ export default function Admin() {
               margin-top: 5px;
             }
             @media print {
-              body * {
-                visibility: hidden;
-              }
-              .receipt, .receipt * {
-                visibility: visible;
-              }
               .receipt {
                 position: absolute;
                 left: 0;
@@ -644,7 +622,7 @@ export default function Admin() {
             <div class="header">
               <h1>Gsaheb Cafe</h1>
               <p>Order #${order.order_number || order.id}</p>
-              <p>Table ${order.tables?.number || order.table_id || 'N/A'}</p>
+              <p>Table ${order.table_id || 'N/A'}</p>
               <p>Date: ${formattedDate}</p>
               <p>Payment Method: ${order.payment_type || 'N/A'}</p>
             </div>
@@ -684,19 +662,14 @@ export default function Admin() {
             </div>
           </div>
           <script>
-            try {
-              window.onload = () => {
-                window.print();
-                window.onafterprint = () => window.close();
-              };
-            } catch (err) {
-              console.error('Print error:', err);
-            }
+            window.onload = () => {
+              window.print();
+              window.onafterprint = () => window.close();
+            };
           </script>
         </body>
       </html>
     `);
-
     printWindow.document.close();
   };
 
@@ -710,66 +683,61 @@ export default function Admin() {
     endDate.setHours(endDate.getHours() + 5);
     endDate.setMinutes(endDate.getMinutes() + 30);
     const filteredOrders = historyOrders.filter((order) => {
-      try {
-        const orderDate = new Date(order.created_at);
-        orderDate.setHours(orderDate.getHours() + 5);
-        orderDate.setMinutes(orderDate.getMinutes() + 30);
-        const matchesDate = orderDate >= startDate && orderDate <= endDate;
-        const matchesStatus = exportFilters.statuses.length ? exportFilters.statuses.includes(order.status) : true;
-        return matchesDate && matchesStatus;
-      } catch (e) {
-        console.warn('Error filtering order:', order);
-        return false;
-      }
+      const orderDate = new Date(order.created_at);
+      orderDate.setHours(orderDate.getHours() + 5);
+      orderDate.setMinutes(orderDate.getMinutes() + 30);
+      const matchesDate = orderDate >= startDate && orderDate <= endDate;
+      const matchesStatus = exportFilters.statuses.length ? exportFilters.statuses.includes(order.status) : true;
+      return matchesDate && matchesStatus;
     });
+
     let csv;
     if (exportType === 'order') {
       csv = [
         'Order ID,Date,Time,Table Number,Status,Total Amount,Items,Payment Method',
         ...filteredOrders.map((order) => {
-          try {
-            const total = order.items.reduce((sum, item) => sum + (item.price || 0) * (item.quantity || 1), 0);
-            const date = formatToISTDateOnly(new Date(order.created_at));
-            const time = formatToIST(new Date(order.created_at)).split(' ')[1];
-            const items = order.items.map((item) => `${item.name} x${item.quantity || 1}`).join(', ');
-            return `"${order.order_number || order.id}","${date}","${time}","${order.tables?.number || order.table_id || 'N/A'}","${order.status}","${total.toFixed(2)}","${items.replace(/"/g, '""')}","${order.payment_type || 'N/A'}"`;
-          } catch (e) {
-            console.warn('Error exporting order:', order);
-            return '';
-          }
-        }).filter((line) => line),
+          const total = order.items.reduce((sum, item) => sum + (item.price || 0) * (item.quantity || 1), 0);
+          const date = formatToISTDateOnly(new Date(order.created_at));
+          const time = formatToIST(new Date(order.created_at)).split(' ')[1];
+          const items = order.items.map((item) => `${item.name} x${item.quantity || 1}`).join(', ');
+          return `"${order.order_number || order.id}","${date}","${time}","${
+            order.table_id || 'N/A'
+          }","${order.status}","${total.toFixed(2)}","${items.replace(/"/g, '""')}","${order.payment_type || 'N/A'}"`;
+        }),
       ];
     } else {
       csv = [
         'Order ID,Date,Item Name,Quantity,Unit Price,Total Price,Status,Table Number,Payment Method',
         ...filteredOrders.flatMap((order) => {
-          try {
-            const date = formatToISTDateOnly(new Date(order.created_at));
-            return order.items.map((item) => {
-              const totalPrice = ((item.price || 0) * (item.quantity || 1)).toFixed(2);
-              return `"${order.order_number || order.id}","${date}","${item.name || 'N/A'}","${item.quantity || 1}","${(item.price || 0).toFixed(2)}","${totalPrice}","${order.status}","${order.tables?.number || order.table_id || 'N/A'}","${order.payment_type || 'N/A'}"`;
-            });
-          } catch (e) {
-            console.warn('Error exporting itemized order:', order);
-            return [];
-          }
+          const date = formatToISTDateOnly(new Date(order.created_at));
+          return order.items.map((item) => {
+            const totalPrice = ((item.price || 0) * (item.quantity || 1)).toFixed(2);
+            return `"${order.order_number || order.id}","${date}","${item.name || ''}","${
+              item.quantity || 1
+            }","${(item.price || 0).toFixed(2)}","${totalPrice}","${order.status}","${
+              order.table_id || 'N/A'
+            }","${order.payment_type || 'N/A'}"`;
+          });
         }),
       ];
     }
+
     const bom = '\uFEFF';
     const blob = new Blob([bom + csv.join('\n')], { type: 'text/csv;charset=utf-8' });
     const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `orders_${exportType}_${formatToISTDateOnly(new Date())}.csv`;
-    a.click();
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `orders_${exportType}_${formatToISTDateOnly(new Date())}.csv`;
+    document.body.appendChild(link);
+    link.click();
     window.URL.revokeObjectURL(url);
+    document.body.removeChild(link);
   };
 
   const StatusFilter = ({ statuses, onChange, label }) => (
-    <div>
+    <div className="mb-4">
       <label className="block text-sm font-medium mb-1">{label}</label>
-      <div className="border rounded-lg p-3 bg-gray-50">
+      <div className="border p-3 rounded-lg bg-gray-50">
         {['pending', 'paid'].map((status) => (
           <label key={status} className="flex items-center mb-2">
             <input
@@ -793,6 +761,12 @@ export default function Admin() {
     </div>
   );
 
+  StatusFilter.propTypes = {
+    statuses: PropTypes.arrayOf(PropTypes.string).isRequired,
+    onChange: PropTypes.func.isRequired,
+    label: PropTypes.string.isRequired,
+  };
+
   if (!isLoggedIn) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100">
@@ -808,15 +782,15 @@ export default function Admin() {
             placeholder="Email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="border p-3 w-full mb-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            aria-label="Email"
+            className="border p-2 w-full mb-4 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            aria-label="Email address"
           />
           <input
             type="password"
             placeholder="Password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="border p-3 w-full mb-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="border p-2 w-full mb-4 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
             aria-label="Password"
           />
           <button
@@ -904,21 +878,16 @@ export default function Admin() {
                   );
                   const formattedDate = formatToIST(new Date(order.created_at));
                   return (
-                    <div
-                      key={order.id}
-                      className="bg-white p-6 rounded-xl shadow-lg flex flex-col"
-                    >
+                    <div key={order.id} className="bg-white p-6 rounded-xl shadow-lg flex flex-col">
                       <div className="flex justify-between items-start mb-5 flex-wrap gap-4">
                         <div>
-                          <h3 className="text-xl font-semibold text-gray-900">
+                          <h3 className="text-xl font-semibold text-gray-600">
                             Order #{order.order_number || order.id}
                           </h3>
-                          <p className="text-sm text-gray-500 mt-1">{formattedDate}</p>
-                          <p className="text-sm text-gray-500 mt-1">
-                            Table {order.tables?.number || order.table_id || 'N/A'}
-                          </p>
+                          <p className="text-sm text-gray-500">{formattedDate}</p>
+                          <p className="text-sm text-gray-500">Table {order.table_id || 'N/A'}</p>
                         </div>
-                        <div className="flex gap-3 flex-wrap">
+                        <div className="flex gap-3">
                           <button
                             className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2 whitespace-nowrap"
                             onClick={() => startEditing(order)}
@@ -947,7 +916,7 @@ export default function Admin() {
                       <div className="overflow-x-auto">
                         <table className="w-full min-w-[320px] table-auto border-collapse">
                           <thead>
-                            <tr className="border-b border-gray-300">
+                            <tr className="border-b">
                               <th className="text-left py-2 px-2 md:px-4 text-gray-700 font-medium">
                                 Item
                               </th>
@@ -961,14 +930,9 @@ export default function Admin() {
                           </thead>
                           <tbody>
                             {order.items.map((item, index) => (
-                              <tr
-                                key={index}
-                                className={index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}
-                              >
+                              <tr key={index} className={index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}>
                                 <td className="py-2 px-2 md:px-4">{item.name || 'N/A'}</td>
-                                <td className="text-right py-2 px-2 md:px-4">
-                                  {item.quantity || 1}
-                                </td>
+                                <td className="text-right py-2 px-2 md:px-4">{item.quantity || 1}</td>
                                 <td className="text-right py-2 px-2 md:px-4">
                                   ₹{((item.price || 0) * (item.quantity || 1)).toFixed(2)}
                                 </td>
@@ -991,12 +955,12 @@ export default function Admin() {
 
         {showPaymentModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-            <div className="bg-white p-6 rounded-lg max-w-2xl w-full">
+            <div className="bg-white p-6 rounded-lg max-w-md w-full">
               <h3 className="text-xl font-semibold mb-4">Select Payment Method</h3>
               <select
                 value={paymentType}
                 onChange={(e) => setPaymentType(e.target.value)}
-                className="border p-2 w-full rounded-md mb-4"
+                className="border p-2 rounded-md w-full mb-4"
                 aria-label="Select payment method"
               >
                 <option value="">Select Payment Method</option>
@@ -1022,7 +986,7 @@ export default function Admin() {
                   onClick={markAsPaid}
                   aria-label="Confirm payment"
                 >
-                  Confirm
+                  Confirm Payment
                 </button>
               </div>
             </div>
@@ -1031,14 +995,14 @@ export default function Admin() {
 
         {editingOrder && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] flex flex-col p-0 overflow-hidden">
+            <div className="flex flex-col bg-white rounded-lg max-w-2xl w-full max-h-[90vh] p-0 overflow-hidden">
               <div className="p-6 border-b">
                 <h3 className="text-xl font-semibold">
                   Edit Order #{editingOrder.order_number || editingOrder.id}
                 </h3>
               </div>
-              <div className="overflow-y-auto px-6 py-4 flex-1">
-                <table className="w-full mb-4">
+              <div className="flex-1 overflow-y-auto px-6 py-4">
+                <table className="min-w-full mb-4">
                   <thead>
                     <tr className="border-b">
                       <th className="text-left py-2">Item</th>
@@ -1147,22 +1111,26 @@ export default function Admin() {
                   </select>
                   {historyFilters.dateRange === 'custom' && (
                     <div className="mt-2 flex gap-2">
-                      <DatePicker
-                        selected={historyFilters.customStart}
-                        onChange={(date) =>
-                          setHistoryFilters({ ...historyFilters, customStart: date, page: 1 })
-                        }
-                        className="border p-2 rounded-md w-full"
-                        aria-label="Select start date"
-                      />
-                      <DatePicker
-                        selected={historyFilters.customEnd}
-                        onChange={(date) =>
-                          setHistoryFilters({ ...historyFilters, customEnd: date, page: 1 })
-                        }
-                        className="border p-2 rounded-md w-full"
-                        aria-label="Select end date"
-                      />
+                      <div>
+                        <DatePicker
+                          selected={historyFilters.customStart}
+                          onChange={(date) =>
+                            setHistoryFilters({ ...historyFilters, customStart: date, page: 1 })
+                          }
+                          className="border p-2 rounded-md w-full"
+                          aria-label="Select start date"
+                        />
+                      </div>
+                      <div>
+                        <DatePicker
+                          selected={historyFilters.customEnd}
+                          onChange={(date) =>
+                            setHistoryFilters({ ...historyFilters, customEnd: date, page: 1 })
+                          }
+                          className="border p-2 rounded-md w-full"
+                          aria-label="Select end date"
+                        />
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1176,15 +1144,15 @@ export default function Admin() {
               </div>
             </div>
             {historyOrders.length === 0 ? (
-              <p className="text-gray-500 text-center">No orders found</p>
+              <p className="text-gray-500 text-center">No orders found.</p>
             ) : (
               <>
                 <table className="w-full bg-white rounded-lg shadow-md">
                   <thead>
                     <tr className="border-b">
                       <th className="text-left py-3 px-4">Order ID</th>
-                      <th className="text-left py-3 px-4">Date</th>
-                      <th className="text-left py-3 px-4">Table</th>
+                      <th className="text-center py-3 px-4">Date</th>
+                      <th className="text-center py-3 px-4">Table</th>
                       <th className="text-right py-3 px-4">Total</th>
                       <th className="text-left py-3 px-4">Status</th>
                       <th className="text-left py-3 px-4">Payment Method</th>
@@ -1205,12 +1173,14 @@ export default function Admin() {
                         return (
                           <tr key={order.id} className="border-b">
                             <td className="py-3 px-4">{order.order_number || order.id}</td>
-                            <td className="py-3 px-4">{formatToIST(new Date(order.created_at))}</td>
-                            <td className="py-3 px-4">{order.tables?.number || order.table_id || 'N/A'}</td>
+                            <td className="text-center py-3 px-4">
+                              {formatToIST(new Date(order.created_at))}
+                            </td>
+                            <td className="text-center py-3 px-4">{order.table_id || 'N/A'}</td>
                             <td className="text-right py-3 px-4">₹{total.toFixed(2)}</td>
                             <td className="py-3 px-4">{order.status}</td>
                             <td className="py-3 px-4">{order.payment_type || 'N/A'}</td>
-                            <td className="text-center py-3 px-4 flex gap-2 justify-center">
+                            <td className="text-center py-3 px-4 flex items-center gap-2 justify-center">
                               <button
                                 className="text-blue-600 hover:text-blue-800"
                                 onClick={() => setViewingOrder(order)}
@@ -1233,7 +1203,7 @@ export default function Admin() {
                 </table>
                 <div className="flex justify-between items-center mt-4">
                   <button
-                    className="bg-gray-500 text-white px-4 py-2 rounded-lg disabled:opacity-50"
+                    className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 disabled:bg-gray-300 disabled:opacity-50"
                     onClick={() => setHistoryFilters({ ...historyFilters, page: historyFilters.page - 1 })}
                     disabled={historyFilters.page === 1}
                     aria-label="Previous page"
@@ -1241,10 +1211,11 @@ export default function Admin() {
                     Previous
                   </button>
                   <span>
-                    Page {historyFilters.page} of {Math.ceil(historyOrders.length / historyFilters.perPage)}
+                    Page {historyFilters.page} of{' '}
+                    {Math.ceil(historyOrders.length / historyFilters.perPage)}
                   </span>
                   <button
-                    className="bg-gray-500 text-white px-4 py-2 rounded-lg disabled:opacity-50"
+                    className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 disabled:bg-gray-300 disabled:opacity-50"
                     onClick={() => setHistoryFilters({ ...historyFilters, page: historyFilters.page + 1 })}
                     disabled={historyFilters.page * historyFilters.perPage >= historyOrders.length}
                     aria-label="Next page"
@@ -1258,56 +1229,70 @@ export default function Admin() {
         )}
 
         {viewingOrder && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-            <div className="bg-white p-6 rounded-lg max-w-2xl w-full">
-              <h3 className="text-xl font-semibold mb-4">
-                Invoice #{viewingOrder.order_number || viewingOrder.id}
-              </h3>
-              <p className="text-sm text-gray-500 mb-2">{formatToIST(new Date(viewingOrder.created_at))}</p>
-              <p className="text-sm text-gray-500 mb-2">
-                Table {viewingOrder.tables?.number || viewingOrder.table_id || 'N/A'}
-              </p>
-              <p className="text-sm text-gray-500 mb-4">Payment Method: {viewingOrder.payment_type || 'N/A'}</p>
-              <table className="w-full mb-4">
-                <thead>
-                  <tr className="border-b">
-                    <th className="text-left py-2">Item</th>
-                    <th className="text-right py-2">Qty</th>
-                    <th className="text-right py-2">Price</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {viewingOrder.items.map((item, index) => (
-                    <tr key={index}>
-                      <td className="py-2">{item.name || 'N/A'}</td>
-                      <td className="text-right py-2">{item.quantity || 1}</td>
-                      <td className="text-right py-2">
-                        ₹{((item.price || 0) * (item.quantity || 1)).toFixed(2)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <div className="flex justify-between font-semibold mb-4">
-                <span>Total</span>
-                <span>₹{viewingOrder.items.reduce((sum, item) => sum + ((item.price || 0) * (item.quantity || 1)), 0).toFixed(2)}</span>
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] mx-2 sm:mx-4 flex flex-col overflow-hidden">
+              <div className="p-4 sm:p-6 border-b shrink-0">
+                <h3 className="text-xl font-bold text-gray-900">
+                  Invoice #{viewingOrder.order_number || viewingOrder.id}
+                </h3>
+                <p className="text-sm text-gray-600 mt-1">
+                  {formatToIST(new Date(viewingOrder.created_at))}
+                </p>
+                <p className="text-sm text-gray-600 mt-1">Table {viewingOrder.table_id || 'N/A'}</p>
+                <p className="text-sm text-gray-600 mt-1">
+                  Payment Method: {viewingOrder.payment_type || 'N/A'}
+                </p>
               </div>
-              <div className="flex justify-end gap-4">
-                <button
-                  className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 transition"
-                  onClick={() => setViewingOrder(null)}
-                  aria-label="Close invoice"
-                >
-                  Close
-                </button>
-                <button
-                  className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition flex items-center gap-2"
-                  onClick={() => printBill(viewingOrder)}
-                  aria-label={`Print invoice for ${viewingOrder.order_number || viewingOrder.id}`}
-                >
-                  <PrinterIcon className="h-5 w-5" />
-                  Print
-                </button>
+              <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4">
+                <table className="w-full min-w-[320px] border-collapse">
+                  <thead>
+                    <tr className="border-b border-gray-200">
+                      <th className="text-left py-2 pr-3 text-sm font-semibold text-gray-700">Item</th>
+                      <th className="text-right py-2 px-3 text-sm font-semibold text-gray-700">Qty</th>
+                      <th className="text-right py-2 pl-3 text-sm font-semibold text-gray-700">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {viewingOrder.items.map((item, index) => (
+                      <tr key={index} className={index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}>
+                        <td className="py-2 pr-3 text-sm text-gray-600">{item.name || 'N/A'}</td>
+                        <td className="text-right py-2 px-3 text-sm text-gray-600">
+                          {item.quantity || 1}
+                        </td>
+                        <td className="text-right py-2 pl-3 text-sm text-gray-600">
+                          ₹{((item.price || 0) * (item.quantity || 1)).toFixed(2)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="p-4 sm:p-6 border-t shrink-0">
+                <div className="flex justify-between items-center mb-4 font-semibold text-gray-900 text-sm sm:text-base">
+                  <span>Total</span>
+                  <span>
+                    ₹{viewingOrder.items
+                      .reduce((sum, item) => sum + (item.price || 0) * (item.quantity || 1), 0)
+                      .toFixed(2)}
+                  </span>
+                </div>
+                <div className="flex justify-end gap-2 sm:gap-3 mt-2">
+                  <button
+                    className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600 transition text-sm sm:text-base"
+                    onClick={() => setViewingOrder(null)}
+                    aria-label="Close invoice"
+                  >
+                    Close
+                  </button>
+                  <button
+                    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition flex items-center gap-1 sm:gap-2 text-sm sm:text-base"
+                    onClick={() => printBill(viewingOrder)}
+                    aria-label={`Print invoice for order ${viewingOrder.order_number || viewingOrder.id}`}
+                  >
+                    <PrinterIcon className="h-4 w-4 sm:h-5 sm:w-5" />
+                    Print
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -1326,7 +1311,7 @@ export default function Admin() {
                     value={newItem.name}
                     onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
                     className="border p-2 rounded-md w-full"
-                    aria-label="Item name input"
+                    aria-label="Item name"
                   />
                 </div>
                 <div>
@@ -1336,7 +1321,7 @@ export default function Admin() {
                     value={newItem.category}
                     onChange={(e) => setNewItem({ ...newItem, category: e.target.value })}
                     className="border p-2 rounded-md w-full"
-                    aria-label="Item category input"
+                    aria-label="Item category"
                   />
                 </div>
                 <div>
@@ -1346,7 +1331,7 @@ export default function Admin() {
                     value={newItem.price}
                     onChange={(e) => setNewItem({ ...newItem, price: e.target.value })}
                     className="border p-2 rounded-md w-full"
-                    aria-label="Item price input"
+                    aria-label="Item price"
                   />
                 </div>
                 <div className="flex items-center">
@@ -1356,7 +1341,7 @@ export default function Admin() {
                       checked={newItem.is_available}
                       onChange={(e) => setNewItem({ ...newItem, is_available: e.target.checked })}
                       className="mr-2"
-                      aria-label="Item availability checkbox"
+                      aria-label="Item availability"
                     />
                     Available
                   </label>
@@ -1407,14 +1392,15 @@ export default function Admin() {
                       )}
                     </td>
                     <td className="text-center py-3 px-4 flex gap-2 justify-center">
-                      <label className="bg-blue-600 text-white px-2 py-1 rounded-md hover:bg-blue-700 cursor-pointer">
+                      <label className="bg-blue-600 text-white px-2 py-1 rounded-md hover:bg-blue-700">
                         <input
                           type="file"
                           accept="image/*"
                           className="hidden"
                           onChange={(e) => uploadImage(item.id, e.target.files[0])}
+                          aria-label={`Upload image for ${item.name}`}
                         />
-                        Upload Image
+                        Upload
                       </label>
                       <button
                         className="bg-red-600 text-white px-2 py-1 rounded-md hover:bg-red-700 transition"
@@ -1422,7 +1408,7 @@ export default function Admin() {
                         disabled={!item.image_url}
                         aria-label={`Delete image for ${item.name}`}
                       >
-                        Delete Image
+                        Delete
                       </button>
                       <button
                         className="text-blue-600 hover:text-blue-800"
@@ -1465,40 +1451,40 @@ export default function Admin() {
             ) : (
               <>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-                  <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white p-6 rounded-lg shadow-md transform hover:scale-105 transition">
+                  <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white p-6 rounded-lg shadow-md">
                     <h3 className="text-lg font-semibold mb-2">Total Orders</h3>
-                    <p className="text-2xl font-bold">{analytics.totalOrders || 0}</p>
+                    <p className="text-2xl font-bold">{analytics.totalOrders}</p>
                   </div>
-                  <div className="bg-gradient-to-r from-green-500 to-green-600 text-white p-6 rounded-lg shadow-md transform hover:scale-105 transition">
+                  <div className="bg-gradient-to-r from-green-500 to-green-600 text-white p-6 rounded-lg shadow-md">
                     <h3 className="text-lg font-semibold mb-2">Total Revenue</h3>
                     <p className="text-2xl font-bold">₹{(analytics.totalRevenue || 0).toFixed(2)}</p>
                   </div>
-                  <div className="bg-gradient-to-r from-purple-500 to-purple-600 text-white p-6 rounded-lg shadow-md transform hover:scale-105 transition">
+                  <div className="bg-gradient-to-r from-purple-500 to-purple-600 text-white p-6 rounded-lg shadow-md">
                     <h3 className="text-lg font-semibold mb-2">Most Sold Item</h3>
                     <p className="text-2xl font-bold">{analytics.mostSoldItem[0]}</p>
-                    <p className="text-sm">{analytics.mostSoldItem[1]} units</p>
+                    <p className="text-sm">{analytics.mostSoldItem[1]} sold</p>
                   </div>
-                  <div className="bg-gradient-to-r from-orange-500 to-orange-600 text-white p-6 rounded-lg shadow-md transform hover:scale-105 transition">
+                  <div className="bg-gradient-to-r from-orange-500 to-orange-600 text-white p-6 rounded-lg shadow-md">
                     <h3 className="text-lg font-semibold mb-2">Peak Hour</h3>
                     <p className="text-2xl font-bold">{analytics.peakHour}</p>
                   </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-                  <div className="bg-gradient-to-r from-teal-500 to-teal-600 text-white p-6 rounded-lg shadow-md transform hover:scale-105 transition">
+                  <div className="bg-gradient-to-r from-teal-500 to-teal-600 text-white p-6 rounded-lg shadow-md">
                     <h3 className="text-lg font-semibold mb-2">Weekly Revenue</h3>
                     <p className="text-2xl font-bold">₹{(weeklyRevenue || 0).toFixed(2)}</p>
                   </div>
-                  <div className="bg-gradient-to-r from-indigo-500 to-indigo-600 text-white p-6 rounded-lg shadow-md transform hover:scale-105 transition">
+                  <div className="bg-gradient-to-r from-indigo-500 to-indigo-600 text-white p-6 rounded-lg shadow-md">
                     <h3 className="text-lg font-semibold mb-2">Monthly Revenue</h3>
                     <p className="text-2xl font-bold">₹{(monthlyRevenue || 0).toFixed(2)}</p>
                   </div>
-                  <div className="bg-gradient-to-r from-pink-500 to-pink-600 text-white p-6 rounded-lg shadow-md transform hover:scale-105 transition">
+                  <div className="bg-gradient-to-r from-pink-500 to-pink-600 text-white p-6 rounded-lg shadow-md">
                     <h3 className="text-lg font-semibold mb-2">Average Order Value</h3>
                     <p className="text-2xl font-bold">₹{(analytics.aov || 0).toFixed(2)}</p>
                   </div>
-                  <div className="bg-gradient-to-r from-yellow-500 to-yellow-600 text-white p-6 rounded-lg shadow-md transform hover:scale-105 transition">
+                  <div className="bg-gradient-to-r from-yellow-500 to-yellow-600 text-white p-6 rounded-lg shadow-md">
                     <h3 className="text-lg font-semibold mb-2">Total Items Sold</h3>
-                    <p className="text-2xl font-bold">{analytics.totalItemsSold || 0}</p>
+                    <p className="text-2xl font-bold">{analytics.totalItemsSold}</p>
                   </div>
                 </div>
                 <div className="bg-white p-6 rounded-lg shadow-md">
@@ -1513,7 +1499,7 @@ export default function Admin() {
                         aria-label="Select export type"
                       >
                         <option value="order">Order Summary</option>
-                        <option value="items">Itemized</option>
+                        <option value="items">Items</option>
                       </select>
                     </div>
                     <div>
