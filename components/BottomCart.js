@@ -12,31 +12,6 @@ export default function BottomCart({ cart, setCart, onPlaceOrder, onClose, isOpe
   );
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedItem, setSelectedItem] = useState(null);
-  const [isOnCafeWifi, setIsOnCafeWifi] = useState(false);
-  const [wifiCheckError, setWifiCheckError] = useState(null);
-
-  // Check Wi-Fi status
-  useEffect(() => {
-    async function checkWifiStatus() {
-      try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || 'https://backend-supabase-valtri-labs-1.onrender.com';
-        const response = await fetch(`${apiUrl}/api/check-wifi`, {
-          method: 'GET',
-          headers: { 'Content-Type': 'application/json' },
-        });
-        if (!response.ok) {
-          throw new Error('Not on café Wi-Fi');
-        }
-        const data = await response.json();
-        setIsOnCafeWifi(data.isOnCafeWifi);
-      } catch (err) {
-        console.error('Wi-Fi check error:', err.message);
-        setWifiCheckError('Please connect to café Wi-Fi to place an order.');
-        setIsOnCafeWifi(false);
-      }
-    }
-    checkWifiStatus();
-  }, []);
 
   // Debug log
   useEffect(() => {
@@ -47,10 +22,8 @@ export default function BottomCart({ cart, setCart, onPlaceOrder, onClose, isOpe
       selectedItem,
       isOpen,
       cartLength: cart.length,
-      isOnCafeWifi,
-      wifiCheckError,
     });
-  }, [isEditing, menu, searchTerm, selectedItem, isOpen, cart, isOnCafeWifi, wifiCheckError]);
+  }, [isEditing, menu, searchTerm, selectedItem, isOpen, cart]);
 
   // Sync visibility with isOpen prop
   useEffect(() => {
@@ -202,11 +175,8 @@ export default function BottomCart({ cart, setCart, onPlaceOrder, onClose, isOpe
       {/* Cart Items (Hidden when minimized) */}
       {!isMinimized && (
         <div className="flex-1 overflow-y-auto p-4">
-          {wifiCheckError && (
-            <p className="text-red-500 text-center mb-4">{wifiCheckError}</p>
-          )}
           {cart.length === 0 ? (
-            <p className="text-center text-gray-500">{isOnCafeWifi ? 'Cart is empty' : 'Connect to café Wi-Fi to add items.'}</p>
+            <p className="text-center text-gray-500">Cart is empty</p>
           ) : (
             cart.map((item, index) => (
               <div key={`${item.item_id}-${index}`} className="flex flex-col mb-4">
@@ -257,6 +227,7 @@ export default function BottomCart({ cart, setCart, onPlaceOrder, onClose, isOpe
             ))
           )}
 
+          {/* Add Item Dropdown (at bottom, only during editing) */}
           {isEditing && (
             <div className="mt-6">
               <label htmlFor="item-search" className="block text-sm font-medium text-gray-700 mb-2">
@@ -330,13 +301,8 @@ export default function BottomCart({ cart, setCart, onPlaceOrder, onClose, isOpe
               Close
             </button>
             <button
-              className={`flex-1 text-white py-2 rounded-lg ${
-                isOnCafeWifi && cart.length > 0
-                  ? 'bg-blue-500 hover:bg-blue-600'
-                  : 'bg-gray-300 cursor-not-allowed'
-              }`}
-              onClick={isOnCafeWifi ? onPlaceOrder : () => alert('Please connect to café Wi-Fi to place an order.')}
-              disabled={!isOnCafeWifi || !cart.length}
+              className="flex-1 bg-blue-500 text-white py-2 rounded-lg hover:bg-blue-600"
+              onClick={onPlaceOrder}
               aria-label={isEditing ? 'Save Order Changes' : 'Place Order'}
             >
               {isEditing ? 'Save Order Changes' : 'Place Order'}
