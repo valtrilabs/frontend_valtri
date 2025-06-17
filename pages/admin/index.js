@@ -19,7 +19,6 @@ import { format, add } from 'date-fns';
 export default function Admin() {
   const router = useRouter();
   const [orders, setOrders] = useState([]);
-  const [paidOrders, setPaidOrders] = useState([]);
   const [menuItems, setMenuItems] = useState([]);
   const [newItem, setNewItem] = useState({ name: '', category: '', price: '', is_available: true });
   const [email, setEmail] = useState('');
@@ -58,8 +57,8 @@ export default function Admin() {
     totalRevenue: 0,
     mostSoldItem: ['N/A', 0],
     peakHour: 'N/A',
-    totalItemsSold: 0,
     aov: 0,
+    totalItemsSold: 0,
   });
 
   useEffect(() => {
@@ -76,18 +75,6 @@ export default function Admin() {
     const utcDate = new Date(date);
     const istDate = add(utcDate, { hours: 5, minutes: 30 });
     return format(istDate, 'dd/MM/yyyy');
-  };
-
-  const formatToISTHourOnly = (date) => {
-    const utcDate = new Date(date);
-    const istDate = add(utcDate, { hours: 5, minutes: 30 });
-    return format(istDate, 'HH');
-  };
-
-  const formatToISTDateForComparison = (date) => {
-    const utcDate = new Date(date);
-    const istDate = add(utcDate, { hours: 5, minutes: 30 });
-    return format(istDate, 'yyyy-MM-dd');
   };
 
   useEffect(() => {
@@ -148,75 +135,72 @@ export default function Admin() {
 
   async function fetchAnalytics() {
     setIsLoadingAnalytics(true);
+    setError(null);
     const maxRetries = 3;
-    let attempts = 0;
+    const endpoints = [
+      'total-orders',
+      'total-revenue',
+      'most-sold-item',
+      'peak-hours',
+      'average-order-value',
+      'total-items-sold',
+    ];
+    const analyticsData = { ...analytics }; // Persist previous data
 
-    while (attempts < maxRetries) {
-      try {
-        console.log(`Fetching analytics data, attempt ${attempts + 1}`);
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || '';
-        const todayStart = new Date();
-        todayStart.setHours(0, 0, 0, 0);
-        todayStart.setHours(todayStart.getHours() - 5);
-        todayStart.setMinutes(todayStart.getMinutes() - 30);
-        const todayEnd = new Date();
-        todayEnd.setHours(23, 59, 59, 999);
-        todayEnd.setHours(todayEnd.getHours() - 5);
-        todayEnd.setMinutes(todayEnd.getMinutes() - 30);
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || '';
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      todayStart.setHours(todayStart.getHours() + 5);
+      todayStart.setMinutes(todayStart.getMinutes() + 30);
+      const todayEnd = new Date();
+      todayEnd.setHours(23, 59, 59, 999);
+      todayEnd.setHours(todayEnd.getHours() + 5);
+      todayEnd.setMinutes(todayEnd.getMinutes() + 30);
 
-        const endpoints = [
-          'total-orders',
-          'total-revenue',
-          'most-sold-item',
-          'peak-hours',
-          'average-order-value',
-          'total-items-sold',
-        ];
-
-        const requests = endpoints.map((endpoint) =>
-          fetch(`${apiUrl}/api/admin/analytics/${endpoint}?startDate=${todayStart.toISOString()}&endDate=${todayEnd.toISOString()}`, {
-            headers: { 'Content-Type': 'application/json' },
-          }).then((res) => {
-            if (!res.ok) throw new Error(`HTTP ${res.status} for ${endpoint}`);
-            return res.json();
-          })
-        );
-
-        const [totalOrders, totalRevenue, mostSoldItem, peakHour, aov, totalItemsSold] = await Promise.all(requests);
-
-        const analyticsData = {
-          totalOrders: totalOrders.totalOrders || 0,
-          totalRevenue: totalRevenue.totalRevenue || 0,
-          mostSoldItem: [mostSoldItem.name || 'N/A', mostSoldItem.totalSold || 0],
-          peakHour: peakHour.peakHour || 'N/A',
-          aov: aov.aov || 0,
-          totalItemsSold: totalItemsSold.totalItemsSold || 0,
-        };
-
-        console.log('Fetched analytics:', analyticsData);
-        setAnalytics(analyticsData);
-        setIsLoadingAnalytics(false);
-        return;
-      } catch (err) {
-        attempts++;
-        console.error(`Failed to fetch analytics (attempt ${attempts}): ${err.message}`);
-        if (attempts === maxRetries) {
-          setError(`Failed to fetch analytics after ${maxRetries} attempts: ${err.message}`);
-          setAnalytics({
-            totalOrders: 0,
-            totalRevenue: 0,
-            mostSoldItem: ['N/A', 0],
-            peakHour: 'N/A',
-            aov: 0,
-            totalItemsSold: 0,
-          });
-          setIsLoadingAnalytics(false);
-          return;
+      for (const endpoint of endpoints) {
+        let attempts = 0;
+        while (attempts < maxRetries) {
+          try {
+            console.log(`Fetching ${endpoint}, attempt ${attempts + 1}`);
+            const response = await fetch(
+              `${apiUrl}/api/admin/analytics/${endpoint}?startDate=${todayStart.toISOString()}&endDate=${todayEnd.toISOString()}`,
+              {
+                headers: { 'Content-Type': 'application/json' },
+              }
+            );
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status} for ${endpoint}`);
+            }
+            const data = await response.json();
+            if (endpoint === 'total-orders') analyticsData.totalOrders = data.totalOrders || 0;
+            if (endpoint === 'total-revenue') analyticsData.totalRevenue = data.totalRevenue || 0;
+            if (endpoint === 'most-sold-item')
+              analyticsData.mostSoldItem = [data.name || 'N/A', data.totalSold || 0];
+            if (endpoint === 'peak-hours') analyticsData.peakHour = data.peakHour || 'N/A';
+            if (endpoint === 'average-order-value') analyticsData.aov = data.aov || 0;
+            if (endpoint === 'total-items-sold') analyticsData.totalItemsSold = data.totalItemsSold || 0;
+            break;
+          } catch (err) {
+            attempts++;
+            console.error(`Failed to fetch ${endpoint} (attempt ${attempts}): ${err.message}`);
+            if (attempts === maxRetries) {
+              setError(`Failed to fetch ${endpoint} data after ${maxRetries} attempts: ${err.message}`);
+            }
+            await delay(1000);
+          }
         }
-        await delay(1000);
       }
+
+      console.log('Fetched analytics:', analyticsData);
+      setAnalytics(analyticsData);
+    } catch (err) {
+      console.error('Unexpected error in fetchAnalytics:', err);
+      setError(`Unexpected error fetching analytics: ${err.message}`);
+    } finally {
+      setIsLoadingAnalytics(false);
     }
-  }
+  };
 
   useEffect(() => {
     if (isLoggedIn && activeTab === 'Data Analytics') {
@@ -234,8 +218,12 @@ export default function Admin() {
         const weekStart = new Date(now);
         weekStart.setDate(now.getDate() - 7);
         weekStart.setHours(0, 0, 0, 0);
+        weekStart.setHours(weekStart.getHours() + 5);
+        weekStart.setMinutes(weekStart.getMinutes() + 30);
         const weekEnd = new Date(now);
         weekEnd.setHours(23, 59, 59, 999);
+        weekEnd.setHours(weekEnd.getHours() + 5);
+        weekEnd.setMinutes(weekEnd.getMinutes() + 30);
         const weekParams = new URLSearchParams({
           startDate: weekStart.toISOString(),
           endDate: weekEnd.toISOString(),
@@ -250,8 +238,12 @@ export default function Admin() {
         const monthStart = new Date(now);
         monthStart.setDate(now.getDate() - 30);
         monthStart.setHours(0, 0, 0, 0);
+        monthStart.setHours(monthStart.getHours() + 5);
+        monthStart.setMinutes(monthStart.getMinutes() + 30);
         const monthEnd = new Date(now);
         monthEnd.setHours(23, 59, 59, 999);
+        monthEnd.setHours(monthEnd.getHours() + 5);
+        monthEnd.setMinutes(monthEnd.getMinutes() + 30);
         const monthParams = new URLSearchParams({
           startDate: monthStart.toISOString(),
           endDate: monthEnd.toISOString(),
@@ -287,6 +279,8 @@ export default function Admin() {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || '';
       let startDate, endDate;
       const today = new Date();
+      today.setHours(today.getHours() + 5);
+      today.setMinutes(today.getMinutes() + 30);
       switch (historyFilters.dateRange) {
         case 'today':
           startDate = new Date(today.setHours(0, 0, 0, 0)).toISOString();
@@ -309,8 +303,16 @@ export default function Admin() {
           endDate = endDate.toISOString();
           break;
         case 'custom':
-          startDate = new Date(historyFilters.customStart.setHours(0, 0, 0, 0)).toISOString();
-          endDate = new Date(historyFilters.customEnd.setHours(23, 59, 59, 999)).toISOString();
+          startDate = new Date(historyFilters.customStart);
+          startDate.setHours(0, 0, 0, 0);
+          startDate.setHours(startDate.getHours() + 5);
+          startDate.setMinutes(startDate.getMinutes() + 30);
+          endDate = new Date(historyFilters.customEnd);
+          endDate.setHours(23, 59, 59, 999);
+          endDate.setHours(endDate.getHours() + 5);
+          endDate.setMinutes(endDate.getMinutes() + 30);
+          startDate = startDate.toISOString();
+          endDate = endDate.toISOString();
           break;
         default:
           break;
@@ -392,8 +394,8 @@ export default function Admin() {
   };
 
   const addItem = (itemId) => {
-    const menuItem = menuItems.find((item) => item.id === itemId);
-    if (menuItem && !editedItems.some((item) => item.item_id === itemId)) {
+    const menuItem = menuItems.find((item) => item.id === parseInt(itemId));
+    if (menuItem && !editedItems.some((item) => item.item_id === menuItem.id)) {
       setEditedItems([
         ...editedItems,
         {
@@ -401,6 +403,7 @@ export default function Admin() {
           name: menuItem.name,
           price: menuItem.price,
           quantity: 1,
+          category: menuItem.category,
         },
       ]);
     }
@@ -676,11 +679,19 @@ export default function Admin() {
   };
 
   const exportOrders = () => {
-    const startDate = new Date(exportFilters.startDate.setHours(0, 0, 0, 0)).toISOString();
-    const endDate = new Date(exportFilters.endDate.setHours(23, 59, 59, 999)).toISOString();
+    const startDate = new Date(exportFilters.startDate);
+    startDate.setHours(0, 0, 0, 0);
+    startDate.setHours(startDate.getHours() + 5);
+    startDate.setMinutes(startDate.getMinutes() + 30);
+    const endDate = new Date(exportFilters.endDate);
+    endDate.setHours(23, 59, 59, 999);
+    endDate.setHours(endDate.getHours() + 5);
+    endDate.setMinutes(endDate.getMinutes() + 30);
     const filteredOrders = historyOrders.filter((order) => {
       try {
-        const orderDate = new Date(order.created_at).toISOString();
+        const orderDate = new Date(order.created_at);
+        orderDate.setHours(orderDate.getHours() + 5);
+        orderDate.setMinutes(orderDate.getMinutes() + 30);
         const matchesDate = orderDate >= startDate && orderDate <= endDate;
         const matchesStatus = exportFilters.statuses.length ? exportFilters.statuses.includes(order.status) : true;
         return matchesDate && matchesStatus;
@@ -699,7 +710,7 @@ export default function Admin() {
             const date = formatToISTDateOnly(new Date(order.created_at));
             const time = formatToIST(new Date(order.created_at)).split(' ')[1];
             const items = order.items.map((item) => `${item.name} x${item.quantity || 1}`).join(', ');
-            return `${order.order_number || order.id},${date},${time},${order.tables?.number || order.table_id || 'N/A'},${order.status},${total.toFixed(2)},${items},${order.payment_type || 'N/A'}`;
+            return `"${order.order_number || order.id}","${date}","${time}","${order.tables?.number || order.table_id || 'N/A'}","${order.status}","${total.toFixed(2)}","${items.replace(/"/g, '""')}","${order.payment_type || 'N/A'}"`;
           } catch (e) {
             console.warn('Error exporting order:', order);
             return '';
@@ -714,7 +725,7 @@ export default function Admin() {
             const date = formatToISTDateOnly(new Date(order.created_at));
             return order.items.map((item) => {
               const totalPrice = ((item.price || 0) * (item.quantity || 1)).toFixed(2);
-              return `${order.order_number || order.id},${date},${item.name || 'N/A'},${item.quantity || 1},${(item.price || 0).toFixed(2)},${totalPrice},${order.status},${order.tables?.number || order.table_id || 'N/A'},${order.payment_type || 'N/A'}`;
+              return `"${order.order_number || order.id}","${date}","${item.name || 'N/A'}","${item.quantity || 1}","${(item.price || 0).toFixed(2)}","${totalPrice}","${order.status}","${order.tables?.number || order.table_id || 'N/A'}","${order.payment_type || 'N/A'}"`;
             });
           } catch (e) {
             console.warn('Error exporting itemized order:', order);
@@ -801,18 +812,17 @@ export default function Admin() {
   return (
     <div className="min-h-screen bg-gray-100 flex">
       <div className="w-64 bg-white shadow-lg p-4 fixed h-full">
-            <div className="text-center mb-8">
-      <p className="text-xs text-gray-400 mb-1">Product by</p>
-      
-      <a
-        href="https://www.valtrilabs.com/"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-2xl font-extrabold bg-gradient-to-r from-purple-500 via-pink-500 to-red-500 bg-clip-text text-transparent"
-      >
-        Valtri Labs
-      </a>
-      </div>
+        <div className="text-center mb-8">
+          <p className="text-xs text-gray-400 mb-1">Product by</p>
+          <a
+            href="https://www.valtrilabs.com/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-2xl font-extrabold bg-gradient-to-r from-purple-500 via-pink-500 to-red-500 bg-clip-text text-transparent"
+          >
+            Valtri Labs
+          </a>
+        </div>
         <nav>
           {['Pending Orders', 'Order History', 'Menu Management', 'Data Analytics'].map((tab) => (
             <button
@@ -844,115 +854,118 @@ export default function Admin() {
         {error && (
           <div className="bg-red-100 text-red-700 p-4 rounded-lg mb-6" role="alert">
             {error}
+            {activeTab === 'Data Analytics' && (
+              <button
+                className="ml-4 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
+                onClick={fetchAnalytics}
+                aria-label="Retry fetching analytics"
+              >
+                Retry
+              </button>
+            )}
           </div>
         )}
 
         {activeTab === 'Pending Orders' && (
-  <div className="px-4 py-6 max-w-screen-lg mx-auto">
-    <h2 className="text-2xl md:text-3xl font-bold text-gray-800 mb-8 text-center md:text-left">
-      Pending Orders
-    </h2>
-    {orders.length === 0 ? (
-      <p className="text-gray-500 text-center text-lg">No pending orders at this moment</p>
-    ) : (
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-        {orders.map((order) => {
-          const total = order.items.reduce(
-            (sum, item) => sum + (item.price || 0) * (item.quantity || 1),
-            0
-          );
-          const formattedDate = formatToIST(new Date(order.created_at));
-          return (
-            <div
-              key={order.id}
-              className="bg-white p-6 rounded-xl shadow-lg flex flex-col"
-            >
-              <div className="flex justify-between items-start mb-5 flex-wrap gap-4">
-                <div>
-                  <h3 className="text-xl font-semibold text-gray-900">
-                    Order #{order.order_number || order.id}
-                  </h3>
-                  <p className="text-sm text-gray-500 mt-1">{formattedDate}</p>
-                  <p className="text-sm text-gray-500 mt-1">
-                    Table {order.tables?.number || order.table_id || 'N/A'}
-                  </p>
-                </div>
-                <div className="flex gap-3 flex-wrap">
-                  <button
-                    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2 whitespace-nowrap"
-                    onClick={() => startEditing(order)}
-                    aria-label={`Edit order ${order.order_number || order.id}`}
-                  >
-                    <PencilSquareIcon className="h-5 w-5" />
-                    Edit
-                  </button>
-                  <button
-                    className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 flex items-center gap-2 whitespace-nowrap"
-                    onClick={() => initiateMarkAsPaid(order.id)}
-                    aria-label={`Mark order ${order.order_number || order.id} as paid`}
-                  >
-                    Mark as Paid
-                  </button>
-                  <button
-                    className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 flex items-center gap-2 whitespace-nowrap"
-                    onClick={() => printBill(order)}
-                    aria-label={`Print bill for order ${order.order_number || order.id}`}
-                  >
-                    <PrinterIcon className="h-5 w-5" />
-                    Print Bill
-                  </button>
-                </div>
+          <div className="px-4 py-6 max-w-screen-lg mx-auto">
+            <h2 className="text-2xl md:text-3xl font-bold text-gray-800 mb-8 text-center md:text-left">
+              Pending Orders
+            </h2>
+            {orders.length === 0 ? (
+              <p className="text-gray-500 text-center text-lg">No pending orders at this moment</p>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                {orders.map((order) => {
+                  const total = order.items.reduce(
+                    (sum, item) => sum + (item.price || 0) * (item.quantity || 1),
+                    0
+                  );
+                  const formattedDate = formatToIST(new Date(order.created_at));
+                  return (
+                    <div
+                      key={order.id}
+                      className="bg-white p-6 rounded-xl shadow-lg flex flex-col"
+                    >
+                      <div className="flex justify-between items-start mb-5 flex-wrap gap-4">
+                        <div>
+                          <h3 className="text-xl font-semibold text-gray-900">
+                            Order #{order.order_number || order.id}
+                          </h3>
+                          <p className="text-sm text-gray-500 mt-1">{formattedDate}</p>
+                          <p className="text-sm text-gray-500 mt-1">
+                            Table {order.tables?.number || order.table_id || 'N/A'}
+                          </p>
+                        </div>
+                        <div className="flex gap-3 flex-wrap">
+                          <button
+                            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2 whitespace-nowrap"
+                            onClick={() => startEditing(order)}
+                            aria-label={`Edit order ${order.order_number || order.id}`}
+                          >
+                            <PencilSquareIcon className="h-5 w-5" />
+                            Edit
+                          </button>
+                          <button
+                            className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 flex items-center gap-2 whitespace-nowrap"
+                            onClick={() => initiateMarkAsPaid(order.id)}
+                            aria-label={`Mark order ${order.order_number || order.id} as paid`}
+                          >
+                            Mark as Paid
+                          </button>
+                          <button
+                            className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 flex items-center gap-2 whitespace-nowrap"
+                            onClick={() => printBill(order)}
+                            aria-label={`Print bill for order ${order.order_number || order.id}`}
+                          >
+                            <PrinterIcon className="h-5 w-5" />
+                            Print Bill
+                          </button>
+                        </div>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full min-w-[320px] table-auto border-collapse">
+                          <thead>
+                            <tr className="border-b border-gray-300">
+                              <th className="text-left py-2 px-2 md:px-4 text-gray-700 font-medium">
+                                Item
+                              </th>
+                              <th className="text-right py-2 px-2 md:px-4 text-gray-700 font-medium">
+                                Qty
+                              </th>
+                              <th className="text-right py-2 px-2 md:px-4 text-gray-700 font-medium">
+                                Price
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {order.items.map((item, index) => (
+                              <tr
+                                key={index}
+                                className={index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}
+                              >
+                                <td className="py-2 px-2 md:px-4">{item.name || 'N/A'}</td>
+                                <td className="text-right py-2 px-2 md:px-4">
+                                  {item.quantity || 1}
+                                </td>
+                                <td className="text-right py-2 px-2 md:px-4">
+                                  ₹{((item.price || 0) * (item.quantity || 1)).toFixed(2)}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className="flex justify-between mt-5 font-semibold text-gray-900 text-lg">
+                        <span>Total</span>
+                        <span>₹{total.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[320px] table-auto border-collapse">
-                  <thead>
-                    <tr className="border-b border-gray-300">
-                      <th className="text-left py-2 px-2 md:px-4 text-gray-700 font-medium">
-                        Item
-                      </th>
-                      <th className="text-right py-2 px-2 md:px-4 text-gray-700 font-medium">
-                        Qty
-                      </th>
-                      <th className="text-right py-2 px-2 md:px-4 text-gray-700 font-medium">
-                        Price
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {order.items.map((item, index) => (
-                      <tr
-                        key={index}
-                        className={index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}
-                      >
-                        <td className="py-2 px-2 md:px-4">{item.name || 'N/A'}</td>
-                        <td className="text-right py-2 px-2 md:px-4">
-                          {item.quantity || 1}
-                        </td>
-                        <td className="text-right py-2 px-2 md:px-4">
-                          ₹{((item.price || 0) * (item.quantity || 1)).toFixed(2)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div className="flex justify-between mt-5 font-semibold text-gray-900 text-lg">
-                <span>Total</span>
-                <span>₹{total.toFixed(2)}</span>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    )}
-  </div>
-)}
-
-
-
-
-
-
+            )}
+          </div>
+        )}
 
         {showPaymentModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
@@ -994,113 +1007,101 @@ export default function Admin() {
           </div>
         )}
 
-
-
-{editingOrder && (
-  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-    <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] flex flex-col p-0 overflow-hidden">
-      {/* Header */}
-      <div className="p-6 border-b">
-        <h3 className="text-xl font-semibold">
-          Edit Order #{editingOrder.order_number || editingOrder.id}
-        </h3>
-      </div>
-
-      {/* Scrollable Content */}
-      <div className="overflow-y-auto px-6 py-4 flex-1">
-        <table className="w-full mb-4">
-          <thead>
-            <tr className="border-b">
-              <th className="text-left py-2">Item</th>
-              <th className="text-right py-2">Qty</th>
-              <th className="text-right py-2">Price</th>
-              <th className="text-center py-2">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {editedItems.map((item, index) => (
-              <tr key={index}>
-                <td className="py-2">{item.name || 'N/A'}</td>
-                <td className="text-right py-2">
-                  <div className="flex items-center justify-end gap-2">
-                    <button
-                      className="bg-gray-200 text-gray-800 px-3 py-1 rounded hover:bg-gray-300"
-                      onClick={() => updateQuantity(index, -1)}
-                      aria-label={`Decrease quantity for ${item.name}`}
-                    >
-                      -
-                    </button>
-                    <span>{item.quantity || 1}</span>
-                    <button
-                      className="bg-gray-200 text-gray-800 px-3 py-1 rounded hover:bg-gray-300"
-                      onClick={() => updateQuantity(index, 1)}
-                      aria-label={`Increase quantity for ${item.name}`}
-                    >
-                      +
-                    </button>
-                  </div>
-                </td>
-                <td className="text-right py-2">
-                  ₹{((item.price || 0) * (item.quantity || 1)).toFixed(2)}
-                </td>
-                <td className="text-center py-2">
-                  <button
-                    className="text-red-600 hover:text-red-800"
-                    onClick={() => removeItem(index)}
-                    aria-label={`Remove item ${item.name}`}
+        {editingOrder && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] flex flex-col p-0 overflow-hidden">
+              <div className="p-6 border-b">
+                <h3 className="text-xl font-semibold">
+                  Edit Order #{editingOrder.order_number || editingOrder.id}
+                </h3>
+              </div>
+              <div className="overflow-y-auto px-6 py-4 flex-1">
+                <table className="w-full mb-4">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="text-left py-2">Item</th>
+                      <th className="text-right py-2">Qty</th>
+                      <th className="text-right py-2">Price</th>
+                      <th className="text-center py-2">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {editedItems.map((item, index) => (
+                      <tr key={index}>
+                        <td className="py-2">{item.name || 'N/A'}</td>
+                        <td className="text-right py-2">
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              className="bg-gray-200 text-gray-800 px-3 py-1 rounded hover:bg-gray-300"
+                              onClick={() => updateQuantity(index, -1)}
+                              aria-label={`Decrease quantity for ${item.name}`}
+                            >
+                              -
+                            </button>
+                            <span>{item.quantity || 1}</span>
+                            <button
+                              className="bg-gray-200 text-gray-800 px-3 py-1 rounded hover:bg-gray-300"
+                              onClick={() => updateQuantity(index, 1)}
+                              aria-label={`Increase quantity for ${item.name}`}
+                            >
+                              +
+                            </button>
+                          </div>
+                        </td>
+                        <td className="text-right py-2">
+                          ₹{((item.price || 0) * (item.quantity || 1)).toFixed(2)}
+                        </td>
+                        <td className="text-center py-2">
+                          <button
+                            className="text-red-600 hover:text-red-800"
+                            onClick={() => removeItem(index)}
+                            aria-label={`Remove item ${item.name}`}
+                          >
+                            <TrashIcon className="h-5 w-5" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div className="mb-4">
+                  <label className="block text-sm font-medium mb-1">Add Item</label>
+                  <select
+                    className="border p-2 w-full rounded-md"
+                    onChange={(e) => addItem(e.target.value)}
+                    value=""
+                    aria-label="Add item to order"
                   >
-                    <TrashIcon className="h-5 w-5" />
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-
-        {/* Add Item Section */}
-        <div className="mb-4">
-          <label className="block text-sm font-medium mb-1">Add Item</label>
-          <select
-            className="border p-2 w-full rounded-md"
-            onChange={(e) => addItem(Number(e.target.value))}
-            value=""
-            aria-label="Add item to order"
-          >
-            <option value="">Select item</option>
-            {menuItems
-              .filter((item) => item.is_available)
-              .map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name} (₹{(item.price || 0).toFixed(2)})
-                </option>
-              ))}
-          </select>
-        </div>
-      </div>
-
-      {/* Footer */}
-      <div className="p-4 border-t flex justify-end gap-4">
-        <button
-          className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 transition"
-          onClick={cancelEdit}
-          aria-label="Cancel edit"
-        >
-          Cancel
-        </button>
-        <button
-          className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition"
-          onClick={saveOrder}
-          aria-label="Save order changes"
-        >
-          Update Order
-        </button>
-      </div>
-    </div>
-  </div>
-)}
-
-
-
+                    <option value="">Select item</option>
+                    {menuItems
+                      .filter((item) => item.is_available)
+                      .map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name} (₹{(item.price || 0).toFixed(2)})
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              </div>
+              <div className="p-4 border-t flex justify-end gap-4">
+                <button
+                  className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 transition"
+                  onClick={cancelEdit}
+                  aria-label="Cancel edit"
+                >
+                  Cancel
+                </button>
+                <button
+                  className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition"
+                  onClick={saveOrder}
+                  aria-label="Save order changes"
+                >
+                  Update Order
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {activeTab === 'Order History' && (
           <div>
@@ -1428,6 +1429,17 @@ export default function Admin() {
             <h2 className="text-2xl font-bold text-gray-800 mb-6">Analytics</h2>
             {isLoadingAnalytics ? (
               <p className="text-gray-500 text-center">Loading analytics data...</p>
+            ) : error ? (
+              <div className="bg-red-100 text-red-700 p-4 rounded-lg mb-6" role="alert">
+                {error}
+                <button
+                  className="ml-4 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
+                  onClick={fetchAnalytics}
+                  aria-label="Retry fetching analytics"
+                >
+                  Retry
+                </button>
+              </div>
             ) : (
               <>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
