@@ -130,17 +130,16 @@ export default function Admin() {
   async function fetchAnalytics() {
     setIsLoadingAnalytics(true);
     setError(null);
-    const maxRetries = 5;
+    const maxRetries = 3;
     const endpoints = [
-      { name: 'total-orders', key: 'totalOrders', defaultValue: 0 },
-      { name: 'total-revenue', key: 'totalRevenue', defaultValue: 0 },
-      { name: 'most-sold-item', key: 'mostSoldItem', defaultValue: ['N/A', 0] },
-      { name: 'peak-hours', key: 'peakHour', defaultValue: 'N/A' },
-      { name: 'average-order-value', key: 'aov', defaultValue: 0 },
-      { name: 'total-items-sold', key: 'totalItemsSold', defaultValue: 0 },
+      'total-orders',
+      'total-revenue',
+      'most-sold-item',
+      'peak-hours',
+      'average-order-value',
+      'total-items-sold',
     ];
     const analyticsData = { ...analytics };
-    const endpointErrors = [];
 
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || '';
@@ -150,62 +149,38 @@ export default function Admin() {
       const todayEnd = new Date();
       todayEnd.setHours(23, 59, 59, 999);
 
-      // Fetch all endpoints concurrently
-      const fetchPromises = endpoints.map(async ({ name, key, defaultValue }) => {
+      for (const endpoint of endpoints) {
         let attempts = 0;
         while (attempts < maxRetries) {
           try {
             const response = await fetch(
-              `${apiUrl}/api/admin/analytics/${name}?startDate=${todayStart.toISOString()}&endDate=${todayEnd.toISOString()}`,
-              { headers: { 'Content-Type': 'application/json' } }
+              `${apiUrl}/api/admin/analytics/${endpoint}?startDate=${todayStart.toISOString()}&endDate=${todayEnd.toISOString()}`,
+              {
+                headers: { 'Content-Type': 'application/json' },
+              }
             );
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const data = await response.json();
-            return { endpoint: { name, key, defaultValue }, result: data, error: null };
+            if (endpoint === 'total-orders') analyticsData.totalOrders = data.totalOrders || 0;
+            if (endpoint === 'total-revenue') analyticsData.totalRevenue = data.totalRevenue || 0;
+            if (endpoint === 'most-sold-item')
+              analyticsData.mostSoldItem = [data.name || 'N/A', data.totalSold || 0];
+            if (endpoint === 'peak-hours') analyticsData.peakHour = data.peakHour || 'N/A';
+            if (endpoint === 'average-order-value') analyticsData.aov = data.aov || 0;
+            if (endpoint === 'total-items-sold') analyticsData.totalItemsSold = data.totalItemsSold || 0;
+            break;
           } catch (err) {
             attempts++;
             if (attempts === maxRetries) {
-              return { endpoint: { name, key, defaultValue }, result: null, error: err };
+              setError(`Failed to fetch ${endpoint} data after ${maxRetries} attempts: ${err.message}`);
             }
-            await delay(1000 * attempts); // Exponential backoff
+            await delay(1000);
           }
         }
-      });
-
-      const results = await Promise.allSettled(fetchPromises);
-      results.forEach(({ status, value }) => {
-        const { endpoint, result, error } = value;
-        if (status === 'fulfilled' && result) {
-          if (endpoint.name === 'total-orders') {
-            analyticsData.totalOrders = Number(result.totalOrders) || 0;
-          } else if (endpoint.name === 'total-revenue') {
-            analyticsData.totalRevenue = Number(result.totalRevenue) || 0;
-          } else if (endpoint.name === 'most-sold-item') {
-            analyticsData.mostSoldItem = [result.name || 'N/A', Number(result.totalSold) || 0];
-          } else if (endpoint.name === 'peak-hours') {
-            analyticsData.peakHour = result.peakHour || 'N/A';
-          } else if (endpoint.name === 'average-order-value') {
-            analyticsData.aov = Number(result.aov) || 0;
-          } else if (endpoint.name === 'total-items-sold') {
-            analyticsData.totalItemsSold = Number(result.totalItemsSold) || 0;
-          }
-        } else {
-          console.warn(`Failed to fetch ${endpoint.name}: ${error?.message}`);
-          analyticsData[endpoint.key] = endpoint.defaultValue;
-          endpointErrors.push(`Failed to fetch ${endpoint.name}: ${error?.message}`);
-        }
-      });
-
-      setAnalytics(analyticsData);
-      if (endpointErrors.length > 0) {
-        setError(endpointErrors.join('; '));
       }
+      setAnalytics(analyticsData);
     } catch (err) {
       setError(`Unexpected error fetching analytics: ${err.message}`);
-      endpoints.forEach(({ key, defaultValue }) => {
-        analyticsData[key] = defaultValue;
-      });
-      setAnalytics(analyticsData);
     } finally {
       setIsLoadingAnalytics(false);
     }
@@ -939,7 +914,7 @@ export default function Admin() {
                       </div>
                       <div className="flex justify-between mt-5 font-semibold text-gray-900 text-lg">
                         <span>Total</span>
-                        <span>₹${total.toFixed(2)}</span>
+                        <span>₹{total.toFixed(2)}</span>
                       </div>
                     </div>
                   );
@@ -1172,32 +1147,24 @@ export default function Admin() {
                             <td className="text-center py-3 px-4">
                               {formatToIST(new Date(order.created_at))}
                             </td>
-                            <td className="text-center py-3 px-4">{order.tables?.number || 'N/A'}</td>
+                            <td className="text-center py-3 px-4">{order.table_id || 'N/A'}</td>
                             <td className="text-right py-3 px-4">₹{total.toFixed(2)}</td>
-                            <td className="py-3 px-4">
-                              <span
-                                className={`capitalize ${
-                                  order.status === 'paid' ? 'text-green-600' : 'text-yellow-600'
-                                }`}
-                              >
-                                {order.status}
-                              </span>
-                            </td>
+                            <td className="py-3 px-4">{order.status}</td>
                             <td className="py-3 px-4">{order.payment_type || 'N/A'}</td>
-                            <td className="text-center py-3 px-4">
+                            <td className="text-center py-3 px-4 flex items-center gap-2 justify-center">
                               <button
-                                className="text-blue-600 hover:text-blue-800 mr-2"
+                                className="text-blue-600 hover:text-blue-800"
                                 onClick={() => setViewingOrder(order)}
-                                aria-label={`View order ${order.order_number || order.id}`}
+                                aria-label={`View invoice for order ${order.order_number || order.id}`}
                               >
                                 View
                               </button>
                               <button
                                 className="text-gray-600 hover:text-gray-800"
                                 onClick={() => printBill(order)}
-                                aria-label={`Print bill for order ${order.order_number || order.id}`}
+                                aria-label={`Print invoice for order ${order.order_number || order.id}`}
                               >
-                                <PrinterIcon className="h-5 w-5 inline" />
+                                <PrinterIcon className="h-5 w-5" />
                               </button>
                             </td>
                           </tr>
@@ -1205,11 +1172,11 @@ export default function Admin() {
                       })}
                   </tbody>
                 </table>
-                <div className="flex justify-between mt-4">
+                <div className="flex justify-between items-center mt-4">
                   <button
-                    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:bg-gray-400"
-                    disabled={historyFilters.page === 1}
+                    className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 disabled:bg-gray-300 disabled:opacity-50"
                     onClick={() => setHistoryFilters({ ...historyFilters, page: historyFilters.page - 1 })}
+                    disabled={historyFilters.page === 1}
                     aria-label="Previous page"
                   >
                     Previous
@@ -1219,62 +1186,12 @@ export default function Admin() {
                     {Math.ceil(historyOrders.length / historyFilters.perPage)}
                   </span>
                   <button
-                    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:bg-gray-400"
-                    disabled={
-                      historyFilters.page ===
-                      Math.ceil(historyOrders.length / historyFilters.perPage)
-                    }
+                    className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 disabled:bg-gray-300 disabled:opacity-50"
                     onClick={() => setHistoryFilters({ ...historyFilters, page: historyFilters.page + 1 })}
+                    disabled={historyFilters.page * historyFilters.perPage >= historyOrders.length}
                     aria-label="Next page"
                   >
                     Next
-                  </button>
-                </div>
-                <div className="mt-6 bg-white p-6 rounded-lg shadow-md">
-                  <h3 className="text-xl font-semibold mb-4">Export Orders</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Export Type</label>
-                      <select
-                        className="border p-2 w-full rounded-md"
-                        value={exportType}
-                        onChange={(e) => setExportType(e.target.value)}
-                        aria-label="Select export type"
-                      >
-                        <option value="order">Order Summary</option>
-                        <option value="item">Item Details</option>
-                      </select>
-                    </div>
-                    <StatusFilter
-                      label="Status"
-                      statuses={exportFilters.statuses}
-                      onChange={(newStatuses) => setExportFilters({ ...exportFilters, statuses: newStatuses })}
-                    />
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Start Date</label>
-                      <DatePicker
-                        selected={exportFilters.startDate}
-                        onChange={(date) => setExportFilters({ ...exportFilters, startDate: date })}
-                        className="border p-2 w-full rounded-md"
-                        aria-label="Select export start date"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">End Date</label>
-                      <DatePicker
-                        selected={exportFilters.endDate}
-                        onChange={(date) => setExportFilters({ ...exportFilters, endDate: date })}
-                        className="border p-2 w-full rounded-md"
-                        aria-label="Select export end date"
-                      />
-                    </div>
-                  </div>
-                  <button
-                    className="bg-blue-600 text-white px-4 py-2 rounded-lg mt-4 hover:bg-blue-700 transition"
-                    onClick={exportOrders}
-                    aria-label="Export orders"
-                  >
-                    Export as CSV
                   </button>
                 </div>
               </>
@@ -1284,54 +1201,69 @@ export default function Admin() {
 
         {viewingOrder && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white p-6 rounded-lg max-w-2xl w-full">
-              <h3 className="text-xl font-semibold mb-4">
-                Order #{viewingOrder.order_number || viewingOrder.id}
-              </h3>
-              <p className="text-sm text-gray-500 mb-2">
-                Date: {formatToIST(new Date(viewingOrder.created_at))}
-              </p>
-              <p className="text-sm text-gray-500 mb-2">
-                Table: {viewingOrder.tables?.number || 'N/A'}
-              </p>
-              <p className="text-sm text-gray-500 mb-2">Status: {viewingOrder.status}</p>
-              <p className="text-sm text-gray-500 mb-4">
-                Payment Method: {viewingOrder.payment_type || 'N/A'}
-              </p>
-              <table className="w-full mb-4">
-                <thead>
-                  <tr className="border-b">
-                    <th className="text-left py-2">Item</th>
-                    <th className="text-right py-2">Qty</th>
-                    <th className="text-right py-2">Price</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {viewingOrder.items.map((item, index) => (
-                    <tr key={index}>
-                      <td className="py-2">{item.name || 'N/A'}</td>
-                      <td className="text-right py-2">{item.quantity || 1}</td>
-                      <td className="text-right py-2">
-                        ₹{((item.price || 0) * (item.quantity || 1)).toFixed(2)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <div className="flex justify-between font-semibold text-lg">
-                <span>Total</span>
-                <span>
-                  ₹{viewingOrder.items.reduce((sum, item) => sum + (item.price || 0) * (item.quantity || 1), 0).toFixed(2)}
-                </span>
+            <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] mx-2 sm:mx-4 flex flex-col overflow-hidden">
+              <div className="p-4 sm:p-6 border-b shrink-0">
+                <h3 className="text-xl font-bold text-gray-900">
+                  Invoice #{viewingOrder.order_number || viewingOrder.id}
+                </h3>
+                <p className="text-sm text-gray-600 mt-1">
+                  {formatToIST(new Date(viewingOrder.created_at))}
+                </p>
+                <p className="text-sm text-gray-600 mt-1">Table {viewingOrder.table_id || 'N/A'}</p>
+                <p className="text-sm text-gray-600 mt-1">
+                  Payment Method: {viewingOrder.payment_type || 'N/A'}
+                </p>
               </div>
-              <div className="flex justify-end mt-4">
-                <button
-                  className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 transition"
-                  onClick={() => setViewingOrder(null)}
-                  aria-label="Close order details"
-                >
-                  Close
-                </button>
+              <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4">
+                <table className="w-full min-w-[320px] border-collapse">
+                  <thead>
+                    <tr className="border-b border-gray-200">
+                      <th className="text-left py-2 pr-3 text-sm font-semibold text-gray-700">Item</th>
+                      <th className="text-right py-2 px-3 text-sm font-semibold text-gray-700">Qty</th>
+                      <th className="text-right py-2 pl-3 text-sm font-semibold text-gray-700">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {viewingOrder.items.map((item, index) => (
+                      <tr key={index} className={index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}>
+                        <td className="py-2 pr-3 text-sm text-gray-600">{item.name || 'N/A'}</td>
+                        <td className="text-right py-2 px-3 text-sm text-gray-600">
+                          {item.quantity || 1}
+                        </td>
+                        <td className="text-right py-2 pl-3 text-sm text-gray-600">
+                          ₹{((item.price || 0) * (item.quantity || 1)).toFixed(2)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="p-4 sm:p-6 border-t shrink-0">
+                <div className="flex justify-between items-center mb-4 font-semibold text-gray-900 text-sm sm:text-base">
+                  <span>Total</span>
+                  <span>
+                    ₹{viewingOrder.items
+                      .reduce((sum, item) => sum + (item.price || 0) * (item.quantity || 1), 0)
+                      .toFixed(2)}
+                  </span>
+                </div>
+                <div className="flex justify-end gap-2 sm:gap-3 mt-2">
+                  <button
+                    className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600 transition text-sm sm:text-base"
+                    onClick={() => setViewingOrder(null)}
+                    aria-label="Close invoice"
+                  >
+                    Close
+                  </button>
+                  <button
+                    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition flex items-center gap-1 sm:gap-2 text-sm sm:text-base"
+                    onClick={() => printBill(viewingOrder)}
+                    aria-label={`Print invoice for order ${viewingOrder.order_number || viewingOrder.id}`}
+                  >
+                    <PrinterIcon className="h-4 w-4 sm:h-5 sm:w-5" />
+                    Print
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -1339,17 +1271,17 @@ export default function Admin() {
 
         {activeTab === 'Menu Management' && (
           <div>
-            <h2 className="text-2xl font-semibold text-gray-800 mb-6">Menu Management</h2>
+            <h2 className="text-2xl font-bold text-gray-800 mb-6">Menu Management</h2>
             <div className="bg-white p-6 rounded-lg shadow-md mb-6">
-              <h3 className="text-xl font-semibold mb-4">Add New Item</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <h3 className="text-lg font-semibold mb-4">Add New Item</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">Name</label>
                   <input
                     type="text"
                     value={newItem.name}
                     onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
-                    className="border p-2 w-full rounded-md"
+                    className="border p-2 rounded-md w-full"
                     aria-label="Item name"
                   />
                 </div>
@@ -1359,7 +1291,7 @@ export default function Admin() {
                     type="text"
                     value={newItem.category}
                     onChange={(e) => setNewItem({ ...newItem, category: e.target.value })}
-                    className="border p-2 w-full rounded-md"
+                    className="border p-2 rounded-md w-full"
                     aria-label="Item category"
                   />
                 </div>
@@ -1369,141 +1301,215 @@ export default function Admin() {
                     type="number"
                     value={newItem.price}
                     onChange={(e) => setNewItem({ ...newItem, price: e.target.value })}
-                    className="border p-2 w-full rounded-md"
+                    className="border p-2 rounded-md w-full"
                     aria-label="Item price"
                   />
                 </div>
                 <div className="flex items-center">
-                  <label className="block text-sm font-medium mr-2">Available</label>
-                  <input
-                    type="checkbox"
-                    checked={newItem.is_available}
-                    onChange={(e) => setNewItem({ ...newItem, is_available: e.target.checked })}
-                    className="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    aria-label="Item availability"
-                  />
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={newItem.is_available}
+                      onChange={(e) => setNewItem({ ...newItem, is_available: e.target.checked })}
+                      className="mr-2"
+                      aria-label="Item availability"
+                    />
+                    Available
+                  </label>
                 </div>
               </div>
               <button
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg mt-4 hover:bg-blue-700 transition"
+                className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
                 onClick={addMenuItem}
                 aria-label="Add menu item"
               >
                 Add Item
               </button>
             </div>
-            <div className="bg-white p-6 rounded-lg shadow-md">
-              <h3 className="text-xl font-semibold mb-4">Menu Items</h3>
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b">
-                    <th className="text-left py-2">Name</th>
-                    <th className="text-left py-2">Category</th>
-                    <th className="text-right py-2">Price</th>
-                    <th className="text-center py-2">Available</th>
-                    <th className="text-center py-2">Image</th>
-                    <th className="text-center py-2">Actions</th>
+            <h3 className="text-lg font-semibold mb-4">Menu Items</h3>
+            <table className="w-full bg-white rounded-lg shadow-md">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left py-3 px-4">Name</th>
+                  <th className="text-left py-3 px-4">Category</th>
+                  <th className="text-right py-3 px-4">Price</th>
+                  <th className="text-center py-3 px-4">Available</th>
+                  <th className="text-center py-3 px-4">Image</th>
+                  <th className="text-center py-3 px-4">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {menuItems.map((item) => (
+                  <tr key={item.id} className="border-b">
+                    <td className="py-3 px-4">{item.name || 'N/A'}</td>
+                    <td className="py-3 px-4">{item.category || 'N/A'}</td>
+                    <td className="text-right py-3 px-4">₹{(item.price || 0).toFixed(2)}</td>
+                    <td className="text-center py-3 px-4">
+                      {item.is_available ? (
+                        <CheckCircleIcon className="h-5 w-5 text-green-600 mx-auto" />
+                      ) : (
+                        <XCircleIcon className="h-5 w-5 text-red-600 mx-auto" />
+                      )}
+                    </td>
+                    <td className="text-center py-3 px-4">
+                      {item.image_url ? (
+                        <img
+                          src={item.image_url}
+                          alt={item.name || 'Menu item'}
+                          className="h-16 w-16 object-cover rounded-md mx-auto"
+                        />
+                      ) : (
+                        <span className="text-gray-500">No Image</span>
+                      )}
+                    </td>
+                    <td className="text-center py-3 px-4 flex gap-2 justify-center">
+                      <label className="bg-blue-600 text-white px-2 py-1 rounded-md hover:bg-blue-700">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => uploadImage(item.id, e.target.files[0])}
+                          aria-label={`Upload image for ${item.name}`}
+                        />
+                        Upload
+                      </label>
+                      <button
+                        className="bg-red-600 text-white px-2 py-1 rounded-md hover:bg-red-700 transition"
+                        onClick={() => deleteImage(item.id, item.image_url)}
+                        disabled={!item.image_url}
+                        aria-label={`Delete image for ${item.name}`}
+                      >
+                        Delete
+                      </button>
+                      <button
+                        className="text-blue-600 hover:text-blue-800"
+                        onClick={() => toggleAvailability(item.id, item.is_available)}
+                        aria-label={`Toggle availability for ${item.name}`}
+                      >
+                        {item.is_available ? 'Disable' : 'Enable'}
+                      </button>
+                      <button
+                        className="text-red-600 hover:text-red-800"
+                        onClick={() => removeMenuItem(item.id)}
+                        aria-label={`Remove ${item.name}`}
+                      >
+                        <TrashIcon className="h-5 w-5" />
+                      </button>
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {menuItems.map((item) => (
-                    <tr key={item.id} className="border-b">
-                      <td className="py-2">{item.name}</td>
-                      <td className="py-2">{item.category || 'N/A'}</td>
-                      <td className="text-right py-2">₹{(item.price || 0).toFixed(2)}</td>
-                      <td className="text-center py-2">
-                        <button
-                          onClick={() => toggleAvailability(item.id, item.is_available)}
-                          aria-label={`Toggle availability for ${item.name}`}
-                        >
-                          {item.is_available ? (
-                            <CheckCircleIcon className="h-5 w-5 text-green-600" />
-                          ) : (
-                            <XCircleIcon className="h-5 w-5 text-red-600" />
-                          )}
-                        </button>
-                      </td>
-                      <td className="text-center py-2">
-                        {item.image_url ? (
-                          <div className="flex items-center justify-center gap-2">
-                            <img src={item.image_url} alt={item.name} className="h-10 w-10 object-cover rounded" />
-                            <button
-                              className="text-red-600 hover:text-red-800"
-                              onClick={() => deleteImage(item.id, item.image_url)}
-                              aria-label={`Delete image for ${item.name}`}
-                            >
-                              <TrashIcon className="h-5 w-5" />
-                            </button>
-                          </div>
-                        ) : (
-                          <input
-                            type="file"
-                            accept="image/*"
-                            onChange={(e) => uploadImage(item.id, e.target.files[0])}
-                            className="text-sm"
-                            aria-label={`Upload image for ${item.name}`}
-                          />
-                        )}
-                      </td>
-                      <td className="text-center py-2">
-                        <button
-                          className="text-red-600 hover:text-red-800"
-                          onClick={() => removeMenuItem(item.id)}
-                          aria-label={`Remove menu item ${item.name}`}
-                        >
-                          <TrashIcon className="h-5 w-5" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
 
         {activeTab === 'Data Analytics' && (
           <div>
-            <h2 className="text-2xl font-semibold text-gray-800 mb-6">Data Analytics</h2>
+            <h2 className="text-2xl font-bold text-gray-800 mb-6">Analytics</h2>
             {isLoadingAnalytics ? (
-              <div className="text-center text-gray-500">Loading analytics...</div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                <div className="bg-white p-6 rounded-lg shadow-md">
-                  <h3 className="text-lg font-semibold text-gray-700">Total Orders</h3>
-                  <p className="text-3xl font-bold text-blue-600">{analytics.totalOrders}</p>
-                </div>
-                <div className="bg-white p-6 rounded-lg shadow-md">
-                  <h3 className="text-lg font-semibold text-gray-700">Total Revenue</h3>
-                  <p className="text-3xl font-bold text-blue-600">₹{analytics.totalRevenue.toFixed(2)}</p>
-                </div>
-                <div className="bg-white p-6 rounded-lg shadow-md">
-                  <h3 className="text-lg font-semibold text-gray-700">Most Sold Item</h3>
-                  <p className="text-xl font-bold text-blue-600">
-                    {analytics.mostSoldItem[0]} ({analytics.mostSoldItem[1]})
-                  </p>
-                </div>
-                <div className="bg-white p-6 rounded-lg shadow-md">
-                  <h3 className="text-lg font-semibold text-gray-700">Peak Hour</h3>
-                  <p className="text-3xl font-bold text-blue-600">{analytics.peakHour}</p>
-                </div>
-                <div className="bg-white p-6 rounded-lg shadow-md">
-                  <h3 className="text-lg font-semibold text-gray-700">Average Order Value</h3>
-                  <p className="text-3xl font-bold text-blue-600">₹{analytics.aov.toFixed(2)}</p>
-                </div>
-                <div className="bg-white p-6 rounded-lg shadow-md">
-                  <h3 className="text-lg font-semibold text-gray-700">Total Items Sold</h3>
-                  <p className="text-3xl font-bold text-blue-600">{analytics.totalItemsSold}</p>
-                </div>
-                <div className="bg-white p-6 rounded-lg shadow-md">
-                  <h3 className="text-lg font-semibold text-gray-700">Weekly Revenue</h3>
-                  <p className="text-3xl font-bold text-blue-600">₹{weeklyRevenue.toFixed(2)}</p>
-                </div>
-                <div className="bg-white p-6 rounded-lg shadow-md">
-                  <h3 className="text-lg font-semibold text-gray-700">Monthly Revenue</h3>
-                  <p className="text-3xl font-bold text-blue-600">₹{monthlyRevenue.toFixed(2)}</p>
-                </div>
+              <p className="text-gray-500 text-center">Loading analytics data...</p>
+            ) : error ? (
+              <div className="bg-red-100 text-red-700 p-4 rounded-lg mb-6" role="alert">
+                {error}
+                <button
+                  className="ml-4 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
+                  onClick={fetchAnalytics}
+                  aria-label="Retry fetching analytics"
+                >
+                  Retry
+                </button>
               </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+                  <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white p-6 rounded-lg shadow-md">
+                    <h3 className="text-lg font-semibold mb-2">Total Orders</h3>
+                    <p className="text-2xl font-bold">{analytics.totalOrders}</p>
+                  </div>
+                  <div className="bg-gradient-to-r from-green-500 to-green-600 text-white p-6 rounded-lg shadow-md">
+                    <h3 className="text-lg font-semibold mb-2">Total Revenue</h3>
+                    <p className="text-2xl font-bold">₹{(analytics.totalRevenue || 0).toFixed(2)}</p>
+                  </div>
+                  <div className="bg-gradient-to-r from-purple-500 to-purple-600 text-white p-6 rounded-lg shadow-md">
+                    <h3 className="text-lg font-semibold mb-2">Most Sold Item</h3>
+                    <p className="text-2xl font-bold">{analytics.mostSoldItem[0]}</p>
+                    <p className="text-sm">{analytics.mostSoldItem[1]} sold</p>
+                  </div>
+                  <div className="bg-gradient-to-r from-orange-500 to-orange-600 text-white p-6 rounded-lg shadow-md">
+                    <h3 className="text-lg font-semibold mb-2">Peak Hour</h3>
+                    <p className="text-2xl font-bold">{analytics.peakHour}</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+                  <div className="bg-gradient-to-r from-teal-500 to-teal-600 text-white p-6 rounded-lg shadow-md">
+                    <h3 className="text-lg font-semibold mb-2">Weekly Revenue</h3>
+                    <p className="text-2xl font-bold">₹{(weeklyRevenue || 0).toFixed(2)}</p>
+                  </div>
+                  <div className="bg-gradient-to-r from-indigo-500 to-indigo-600 text-white p-6 rounded-lg shadow-md">
+                    <h3 className="text-lg font-semibold mb-2">Monthly Revenue</h3>
+                    <p className="text-2xl font-bold">₹{(monthlyRevenue || 0).toFixed(2)}</p>
+                  </div>
+                  <div className="bg-gradient-to-r from-pink-500 to-pink-600 text-white p-6 rounded-lg shadow-md">
+                    <h3 className="text-lg font-semibold mb-2">Average Order Value</h3>
+                    <p className="text-2xl font-bold">₹{(analytics.aov || 0).toFixed(2)}</p>
+                  </div>
+                  <div className="bg-gradient-to-r from-yellow-500 to-yellow-600 text-white p-6 rounded-lg shadow-md">
+                    <h3 className="text-lg font-semibold mb-2">Total Items Sold</h3>
+                    <p className="text-2xl font-bold">{analytics.totalItemsSold}</p>
+                  </div>
+                </div>
+                <div className="bg-white p-6 rounded-lg shadow-md">
+                  <h3 className="text-lg font-semibold mb-4">Export Orders</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Export Type</label>
+                      <select
+                        className="border p-2 w-full rounded-md"
+                        value={exportType}
+                        onChange={(e) => setExportType(e.target.value)}
+                        aria-label="Select export type"
+                      >
+                        <option value="order">Order Summary</option>
+                        <option value="items">Items</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Start Date</label>
+                      <DatePicker
+                        selected={exportFilters.startDate}
+                        onChange={(date) => setExportFilters({ ...exportFilters, startDate: date })}
+                        className="border p-2 rounded-md w-full"
+                        aria-label="Select start date for export"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">End Date</label>
+                      <DatePicker
+                        selected={exportFilters.endDate}
+                        onChange={(date) => setExportFilters({ ...exportFilters, endDate: date })}
+                        className="border p-2 rounded-md w-full"
+                        aria-label="Select end date for export"
+                      />
+                    </div>
+                  </div>
+                  <div className="mt-4">
+                    <StatusFilter
+                      label="Status"
+                      statuses={exportFilters.statuses}
+                      onChange={(newStatuses) =>
+                        setExportFilters({ ...exportFilters, statuses: newStatuses })
+                      }
+                    />
+                  </div>
+                  <button
+                    className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
+                    onClick={exportOrders}
+                    aria-label="Export orders"
+                  >
+                    Export
+                  </button>
+                </div>
+              </>
             )}
           </div>
         )}
