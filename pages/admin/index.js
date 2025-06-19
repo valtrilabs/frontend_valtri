@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Component } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../../lib/supabase';
 import { format, add } from 'date-fns';
@@ -12,12 +12,71 @@ import {
   XCircleIcon,
   ClockIcon,
   PencilSquareIcon,
-  UploadIcon,
+  ArrowUpTrayIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
 import PropTypes from 'prop-types';
+
+// Error Boundary to catch rendering errors
+class ErrorBoundary extends Component {
+  state = { hasError: false, error: null };
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-4 bg-red-100 text-red-700 rounded-lg">
+          Error: {this.state.error.message}
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+ErrorBoundary.propTypes = {
+  children: PropTypes.node.isRequired,
+};
+
+const StatusFilter = ({ statuses, onChange, label }) => {
+  return (
+    <div className="mb-4">
+      <label className="block text-sm font-medium mb-1">{label}</label>
+      <div className="border p-3 rounded-lg bg-gray-50">
+        {['pending', 'paid'].map((status) => (
+          <label key={status} className="flex items-center mb-2">
+            <input
+              type="checkbox"
+              value={status}
+              checked={statuses.includes(status)}
+              onChange={(e) => {
+                const newStatuses = e.target.checked
+                  ? [...statuses, status]
+                  : statuses.filter((s) => s !== status);
+                onChange(newStatuses);
+              }}
+              className="mr-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <span className={`capitalize ${status === 'paid' ? 'text-green-600' : 'text-yellow-600'}`}>
+              {status}
+            </span>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+StatusFilter.propTypes = {
+  statuses: PropTypes.arrayOf(PropTypes.string).isRequired,
+  onChange: PropTypes.func.isRequired,
+  label: PropTypes.string.isRequired,
+};
 
 export default function Admin() {
   const router = useRouter();
@@ -65,10 +124,11 @@ export default function Admin() {
   });
 
   useEffect(() => {
-    localStorage.setItem('activeTab', activeTab);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('activeTab', activeTab);
+    }
   }, [activeTab]);
 
-  // Format date to IST
   const formatToIST = (date) => {
     const utcDate = new Date(date);
     const istDate = add(utcDate, { hours: 5, minutes: 30 });
@@ -828,316 +888,668 @@ export default function Admin() {
     }
   };
 
-  const StatusFilter = ({ statuses, onChange, label }) => (
-    <div className="mb-4">
-      <label className="block text-sm font-medium mb-1">{label}</label>
-      <div className="border p-3 rounded-lg bg-gray-50">
-        {['pending', 'paid'].map((status) => (
-          <label key={status} className="flex items-center mb-2">
-            <input
-              type="checkbox"
-              value={status}
-              checked={statuses.includes(status)}
-              onChange={(e) => {
-                const newStatuses = e.target.checked
-                  ? [...statuses, status]
-                  : statuses.filter((s) => s !== status);
-                onChange(newStatuses);
-              }}
-              className="mr-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-            />
-            <span className={`capitalize ${status === 'paid' ? 'text-green-600' : 'text-yellow-600'}`}>
-              {status}
-            </span>
-          </label>
-        ))}
-      </div>
-    </div>
-  );
-
-  StatusFilter.propTypes = {
-    statuses: PropTypes.arrayOf(PropTypes.string).isRequired,
-    onChange: PropTypes.func.isRequired,
-    label: PropTypes.string.isRequired,
-  };
-
   if (!isLoggedIn) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-100">
-        <div className="bg-white p-8 rounded-lg shadow-lg max-w-md w-full">
-          <h1 className="text-2xl font-bold mb-6 text-center">Admin Login</h1>
-          {error && (
-            <p className="text-red-500 mb-4 text-center" role="alert">
-              {error}
-            </p>
-          )}
-          <input
-            type="email"
-            placeholder="Email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="border p-2 w-full mb-4 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            aria-label="Email address"
-          />
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="border p-2 w-full mb-4 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            aria-label="Password"
-          />
-          <button
-            className="bg-blue-600 text-white px-4 py-3 rounded-lg w-full hover:bg-blue-700 transition"
-            onClick={handleLogin}
-            aria-label="Login"
-          >
-            Login
-          </button>
+      <ErrorBoundary>
+        <div className="min-h-screen flex items-center justify-center bg-gray-100">
+          <div className="bg-white p-8 rounded-lg shadow-lg max-w-md w-full">
+            <h1 className="text-2xl font-bold mb-6 text-center">Admin Login</h1>
+            {error && (
+              <p className="text-red-500 mb-4 text-center" role="alert">
+                {error}
+              </p>
+            )}
+            <input
+              type="email"
+              placeholder="Email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="border p-2 w-full mb-4 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              aria-label="Email address"
+            />
+            <input
+              type="password"
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="border p-2 w-full mb-4 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              aria-label="Password"
+            />
+            <button
+              className="bg-blue-600 text-white px-4 py-3 rounded-lg w-full hover:bg-blue-700 transition"
+              onClick={handleLogin}
+              aria-label="Login"
+            >
+              Login
+            </button>
+          </div>
         </div>
-      </div>
+      </ErrorBoundary>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-100 flex">
-      <div className="w-64 bg-white shadow-lg p-4 fixed h-full">
-        <div className="text-center mb-8">
-          <p className="text-xs text-gray-400 mb-1">Product by</p>
-          <a
-            href="https://www.valtrilabs.com/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-2xl font-extrabold bg-gradient-to-r from-purple-500 via-pink-500 to-red-500 bg-clip-text text-transparent"
-          >
-            Valtri Labs
-          </a>
-        </div>
-        <nav>
-          {['Pending Orders', 'Order History', 'Menu Management', 'Data Analytics'].map((tab) => (
-            <button
-              key={tab}
-              className={`w-full text-left py-3 px-4 mb-2 rounded-lg flex items-center gap-2 ${
-                activeTab === tab ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-200'
-              }`}
-              onClick={() => setActiveTab(tab)}
-              aria-current={activeTab === tab ? 'page' : undefined}
+    <ErrorBoundary>
+      <div className="min-h-screen bg-gray-100 flex">
+        <div className="w-64 bg-white shadow-lg p-4 fixed h-full">
+          <div className="text-center mb-8">
+            <p className="text-xs text-gray-400 mb-1">Product by</p>
+            <a
+              href="https://www.valtrilabs.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-2xl font-extrabold bg-gradient-to-r from-purple-500 via-pink-500 to-red-500 bg-clip-text text-transparent"
             >
-              {tab === 'Pending Orders' && <ClipboardDocumentListIcon className="h-5 w-5" />}
-              {tab === 'Order History' && <ClockIcon className="h-5 w-5" />}
-              {tab === 'Menu Management' && <PlusIcon className="h-5 w-5" />}
-              {tab === 'Data Analytics' && <ChartBarIcon className="h-5 w-5" />}
-              {tab}
-            </button>
-          ))}
-        </nav>
-        <button
-          className="w-full mt-4 bg-red-600 text-white py-3 rounded-lg hover:bg-red-700 transition"
-          onClick={() => supabase.auth.signOut().then(() => setIsLoggedIn(false))}
-          aria-label="Logout"
-        >
-          Logout
-        </button>
-      </div>
-
-      <div className="ml-64 flex-1 p-8">
-        {error && (
-          <div className="bg-red-100 text-red-700 p-4 rounded-lg mb-6" role="alert">
-            {error}
-            {activeTab === 'Data Analytics' && (
+              Valtri Labs
+            </a>
+          </div>
+          <nav>
+            {['Pending Orders', 'Order History', 'Menu Management', 'Data Analytics'].map((tab) => (
               <button
-                className="ml-4 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
-                onClick={fetchAnalytics}
-                aria-label="Retry fetching analytics"
+                key={tab}
+                className={`w-full text-left py-3 px-4 mb-2 rounded-lg flex items-center gap-2 ${
+                  activeTab === tab ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-200'
+                }`}
+                onClick={() => setActiveTab(tab)}
+                aria-current={activeTab === tab ? 'page' : undefined}
               >
-                Retry
+                {tab === 'Pending Orders' && <ClipboardDocumentListIcon className="h-5 w-5" />}
+                {tab === 'Order History' && <ClockIcon className="h-5 w-5" />}
+                {tab === 'Menu Management' && <PlusIcon className="h-5 w-5" />}
+                {tab === 'Data Analytics' && <ChartBarIcon className="h-5 w-5" />}
+                {tab}
               </button>
-            )}
-          </div>
-        )}
+            ))}
+          </nav>
+          <button
+            className="w-full mt-4 bg-red-600 text-white py-3 rounded-lg hover:bg-red-700 transition"
+            onClick={() => supabase.auth.signOut().then(() => setIsLoggedIn(false))}
+            aria-label="Logout"
+          >
+            Logout
+          </button>
+        </div>
 
-        {activeTab === 'Pending Orders' && (
-          <div className="px-4 py-6 max-w-screen-lg mx-auto">
-            <h2 className="text-2xl md:text-3xl font-bold text-gray-800 mb-8 text-center md:text-left">
-              Pending Orders
-            </h2>
-            {orders.length === 0 ? (
-              <p className="text-gray-500 text-center text-lg">No pending orders at this moment</p>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {orders.map((order) => {
-                  const total = order.items.reduce(
-                    (sum, item) => sum + (item.price || 0) * (item.quantity || 1),
-                    0
-                  );
-                  const formattedDate = formatToIST(new Date(order.created_at));
-                  return (
-                    <div
-                      key={order.id}
-                      className="bg-white p-6 rounded-xl shadow-md hover:shadow-lg transition-shadow duration-200 border border-gray-200 flex flex-col"
-                    >
-                      <div className="flex justify-between items-start mb-4 flex-wrap gap-4">
-                        <div>
-                          <h3 className="text-lg font-semibold text-gray-900">
-                            Order #{order.order_number || order.id}
-                          </h3>
-                          <p className="text-sm text-gray-600 mt-1">{formattedDate}</p>
-                          <p className="text-sm text-gray-600">Table {order.table_id || 'N/A'}</p>
+        <div className="ml-64 flex-1 p-8">
+          {error && (
+            <div className="bg-red-100 text-red-700 p-4 rounded-lg mb-6" role="alert">
+              {error}
+              {activeTab === 'Data Analytics' && (
+                <button
+                  className="ml-4 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
+                  onClick={fetchAnalytics}
+                  aria-label="Retry fetching analytics"
+                >
+                  Retry
+                </button>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'Pending Orders' && (
+            <div className="px-4 py-6 max-w-screen-lg mx-auto">
+              <h2 className="text-2xl md:text-3xl font-bold text-gray-800 mb-8 text-center md:text-left">
+                Pending Orders
+              </h2>
+              {orders.length === 0 ? (
+                <p className="text-gray-500 text-center text-lg">No pending orders at this moment</p>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {orders.map((order) => {
+                    const total = order.items.reduce(
+                      (sum, item) => sum + (item.price || 0) * (item.quantity || 1),
+                      0
+                    );
+                    const formattedDate = formatToIST(new Date(order.created_at));
+                    return (
+                      <div
+                        key={order.id}
+                        className="bg-white p-6 rounded-xl shadow-md hover:shadow-lg transition-shadow duration-200 border border-gray-200 flex flex-col"
+                      >
+                        <div className="flex justify-between items-start mb-4 flex-wrap gap-4">
+                          <div>
+                            <h3 className="text-lg font-semibold text-gray-900">
+                              Order #{order.order_number || order.id}
+                            </h3>
+                            <p className="text-sm text-gray-600 mt-1">{formattedDate}</p>
+                            <p className="text-sm text-gray-600">Table {order.table_id || 'N/A'}</p>
+                          </div>
+                          <div className="flex gap-2 flex-wrap">
+                            <button
+                              className="bg-blue-600 text-white px-3 py-1.5 rounded-md hover:bg-blue-700 flex items-center gap-1 text-sm transition"
+                              onClick={() => startEditing(order)}
+                              aria-label={`Edit order ${order.order_number || order.id}`}
+                            >
+                              <PencilSquareIcon className="h-4 w-4" />
+                              Edit
+                            </button>
+                            <button
+                              className="bg-green-600 text-white px-3 py-1.5 rounded-md hover:bg-green-700 flex items-center gap-1 text-sm transition"
+                              onClick={() => initiateMarkAsPaid(order.id)}
+                              aria-label={`Mark order ${order.order_number || order.id} as paid`}
+                            >
+                              Mark Paid
+                            </button>
+                            <button
+                              className="bg-gray-600 text-white px-3 py-1.5 rounded-md hover:bg-gray-700 flex items-center gap-1 text-sm transition"
+                              onClick={() => printBill(order)}
+                              aria-label={`Print bill for order ${order.order_number || order.id}`}
+                            >
+                              <PrinterIcon className="h-4 w-4" />
+                              Print
+                            </button>
+                          </div>
                         </div>
-                        <div className="flex gap-2 flex-wrap">
-                          <button
-                            className="bg-blue-600 text-white px-3 py-1.5 rounded-md hover:bg-blue-700 flex items-center gap-1 text-sm transition"
-                            onClick={() => startEditing(order)}
-                            aria-label={`Edit order ${order.order_number || order.id}`}
-                          >
-                            <PencilSquareIcon className="h-4 w-4" />
-                            Edit
-                          </button>
-                          <button
-                            className="bg-green-600 text-white px-3 py-1.5 rounded-md hover:bg-green-700 flex items-center gap-1 text-sm transition"
-                            onClick={() => initiateMarkAsPaid(order.id)}
-                            aria-label={`Mark order ${order.order_number || order.id} as paid`}
-                          >
-                            Mark Paid
-                          </button>
-                          <button
-                            className="bg-gray-600 text-white px-3 py-1.5 rounded-md hover:bg-gray-700 flex items-center gap-1 text-sm transition"
-                            onClick={() => printBill(order)}
-                            aria-label={`Print bill for order ${order.order_number || order.id}`}
-                          >
-                            <PrinterIcon className="h-4 w-4" />
-                            Print
-                          </button>
-                        </div>
-                      </div>
-                      <div className="overflow-x-auto">
-                        <table className="w-full min-w-[320px] text-sm">
-                          <thead>
-                            <tr className="border-b border-gray-200">
-                              <th className="text-left py-2 px-3 font-semibold text-gray-700">Item</th>
-                              <th className="text-right py-2 px-3 font-semibold text-gray-700">Qty</th>
-                              <th className="text-right py-2 px-3 font-semibold text-gray-700">Price</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {order.items.map((item, index) => (
-                              <tr
-                                key={`${item.item_id}-${index}`}
-                                className={`${
-                                  index % 2 === 0 ? 'bg-gray-50' : ''
-                                } hover:bg-gray-100 transition-colors`}
-                              >
-                                <td className="py-2 px-3 text-gray-600">{item.name || 'N/A'}</td>
-                                <td className="text-right py-2 px-3 text-gray-600">{item.quantity || 1}</td>
-                                <td className="text-right py-2 px-3 text-gray-600">
-                                  ₹{((item.price || 0) * (item.quantity || 1)).toFixed(2)}
-                                </td>
+                        <div className="overflow-x-auto">
+                          <table className="w-full min-w-[320px] text-sm">
+                            <thead>
+                              <tr className="border-b border-gray-200">
+                                <th className="text-left py-2 px-3 font-semibold text-gray-700">Item</th>
+                                <th className="text-right py-2 px-3 font-semibold text-gray-700">Qty</th>
+                                <th className="text-right py-2 px-3 font-semibold text-gray-700">Price</th>
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                            </thead>
+                            <tbody>
+                              {order.items.map((item, index) => (
+                                <tr
+                                  key={`${item.item_id}-${index}`}
+                                  className={`${
+                                    index % 2 === 0 ? 'bg-gray-50' : ''
+                                  } hover:bg-gray-100 transition-colors`}
+                                >
+                                  <td className="py-2 px-3 text-gray-600">{item.name || 'N/A'}</td>
+                                  <td className="text-right py-2 px-3 text-gray-600">{item.quantity || 1}</td>
+                                  <td className="text-right py-2 px-3 text-gray-600">
+                                    ₹{((item.price || 0) * (item.quantity || 1)).toFixed(2)}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        <div className="flex justify-between mt-6 text-base font-semibold text-gray-900">
+                          <span>Total</span>
+                          <span>₹{total.toFixed(2)}</span>
+                        </div>
                       </div>
-                      <div className="flex justify-between mt-6 text-base font-semibold text-gray-900">
-                        <span>Total</span>
-                        <span>₹{total.toFixed(2)}</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        )}
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
 
-        {showPaymentModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-            <div className="bg-white p-6 rounded-lg max-w-md w-full">
-              <h3 className="text-xl font-semibold mb-4">Select Payment Method</h3>
-              <select
-                value={paymentType}
-                onChange={(e) => setPaymentType(e.target.value)}
-                className="border p-2 rounded-md w-full mb-4"
-                aria-label="Select payment method"
-              >
-                <option value="">Select Payment Method</option>
-                <option value="UPI">UPI</option>
-                <option value="Cash">Cash</option>
-                <option value="Bank">Bank</option>
-                <option value="Card">Card</option>
-              </select>
-              <div className="flex justify-end gap-4">
-                <button
-                  className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 transition"
-                  onClick={() => {
-                    setShowPaymentModal(false);
-                    setSelectedOrderId(null);
-                    setPaymentType('');
-                  }}
-                  aria-label="Cancel payment selection"
+          {showPaymentModal && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+              <div className="bg-white p-6 rounded-lg max-w-md w-full">
+                <h3 className="text-xl font-semibold mb-4">Select Payment Method</h3>
+                <select
+                  value={paymentType}
+                  onChange={(e) => setPaymentType(e.target.value)}
+                  className="border p-2 rounded-md w-full mb-4"
+                  aria-label="Select payment method"
                 >
-                  Cancel
-                </button>
-                <button
-                  className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition"
-                  onClick={markAsPaid}
-                  aria-label="Confirm payment"
-                >
-                  Confirm Payment
-                </button>
+                  <option value="">Select Payment Method</option>
+                  <option value="UPI">UPI</option>
+                  <option value="Cash">Cash</option>
+                  <option value="Bank">Bank</option>
+                  <option value="Card">Card</option>
+                </select>
+                <div className="flex justify-end gap-4">
+                  <button
+                    className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 transition"
+                    onClick={() => {
+                      setShowPaymentModal(false);
+                      setSelectedOrderId(null);
+                      setPaymentType('');
+                    }}
+                    aria-label="Cancel payment selection"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition"
+                    onClick={markAsPaid}
+                    aria-label="Confirm payment"
+                  >
+                    Confirm Payment
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {editingOrder && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="flex flex-col bg-white rounded-lg max-w-2xl w-full max-h-[90vh] p-0 overflow-hidden">
-              <div className="p-6 border-b">
-                <h3 className="text-xl font-semibold">
-                  Edit Order #{editingOrder.order_number || editingOrder.id}
-                </h3>
+          {editingOrder && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="flex flex-col bg-white rounded-lg max-w-2xl w-full max-h-[90vh] p-0 overflow-hidden">
+                <div className="p-6 border-b">
+                  <h3 className="text-xl font-semibold">
+                    Edit Order #{editingOrder.order_number || editingOrder.id}
+                  </h3>
+                </div>
+                <div className="flex-1 overflow-y-auto px-6 py-4">
+                  <table className="min-w-full mb-4">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left py-2">Item</th>
+                        <th className="text-right py-2">Qty</th>
+                        <th className="text-right py-2">Price</th>
+                        <th className="text-center py-2">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {editedItems.map((item, index) => (
+                        <tr key={`${item.item_id}-${index}`}>
+                          <td className="py-2">{item.name || 'N/A'}</td>
+                          <td className="text-right py-2">
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                className="bg-gray-200 text-gray-800 px-3 py-1 rounded hover:bg-gray-300"
+                                onClick={() => updateQuantity(index, -1)}
+                                aria-label={`Decrease quantity for ${item.name}`}
+                              >
+                                -
+                              </button>
+                              <span>{item.quantity || 1}</span>
+                              <button
+                                className="bg-gray-200 text-gray-800 px-3 py-1 rounded hover:bg-gray-300"
+                                onClick={() => updateQuantity(index, 1)}
+                                aria-label={`Increase quantity for ${item.name}`}
+                              >
+                                +
+                              </button>
+                            </div>
+                          </td>
+                          <td className="text-right py-2">
+                            ₹{((item.price || 0) * (item.quantity || 1)).toFixed(2)}
+                          </td>
+                          <td className="text-center py-2">
+                            <button
+                              className="text-red-600 hover:text-red-800"
+                              onClick={() => removeItem(index)}
+                              aria-label={`Remove item ${item.name}`}
+                            >
+                              <TrashIcon className="h-5 w-5" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium mb-1">Add Item</label>
+                    <select
+                      className="border p-2 w-full rounded-md"
+                      onChange={(e) => addItem(e.target.value)}
+                      value=""
+                      aria-label="Add item to order"
+                    >
+                      <option value="">Select item</option>
+                      {menuItems
+                        .filter((item) => item.is_available)
+                        .map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.name} (₹{(item.price || 0).toFixed(2)})
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="p-4 border-t flex justify-end gap-4">
+                  <button
+                    className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 transition"
+                    onClick={cancelEdit}
+                    aria-label="Cancel edit"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition"
+                    onClick={saveOrder}
+                    aria-label="Save order changes"
+                  >
+                    Update Order
+                  </button>
+                </div>
               </div>
-              <div className="flex-1 overflow-y-auto px-6 py-4">
-                <table className="min-w-full mb-4">
+            </div>
+          )}
+
+          {activeTab === 'Order History' && (
+            <div>
+              <h2 className="text-2xl font-semibold text-gray-800 mb-6">Order History</h2>
+              <div className="bg-white p-6 rounded-lg shadow-md mb-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Date Range</label>
+                    <select
+                      className="border p-2 w-full rounded-md"
+                      value={historyFilters.dateRange}
+                      onChange={(e) =>
+                        setHistoryFilters({ ...historyFilters, dateRange: e.target.value, page: 1 })
+                      }
+                      aria-label="Select date range"
+                    >
+                      <option value="today">Today</option>
+                      <option value="yesterday">Yesterday</option>
+                      <option value="last7days">Last 7 Days</option>
+                      <option value="custom">Custom Range</option>
+                    </select>
+                    {historyFilters.dateRange === 'custom' && (
+                      <div className="mt-2 flex gap-2">
+                        <div>
+                          <DatePicker
+                            selected={historyFilters.customStart}
+                            onChange={(date) =>
+                              setHistoryFilters({ ...historyFilters, customStart: date, page: 1 })
+                            }
+                            className="border p-2 rounded-md w-full"
+                            aria-label="Select start date"
+                          />
+                        </div>
+                        <div>
+                          <DatePicker
+                            selected={historyFilters.customEnd}
+                            onChange={(date) =>
+                              setHistoryFilters({ ...historyFilters, customEnd: date, page: 1 })
+                            }
+                            className="border p-2 rounded-md w-full"
+                            aria-label="Select end date"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <StatusFilter
+                    label="Status"
+                    statuses={historyFilters.statuses}
+                    onChange={(newStatuses) =>
+                      setHistoryFilters({ ...historyFilters, statuses: newStatuses, page: 1 })
+                    }
+                  />
+                </div>
+              </div>
+              {historyOrders.length === 0 ? (
+                <p className="text-gray-500 text-center">No orders found.</p>
+              ) : (
+                <>
+                  <table className="w-full bg-white rounded-lg shadow-md">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left py-3 px-4">Order ID</th>
+                        <th className="text-center py-3 px-4">Date</th>
+                        <th className="text-center py-3 px-4">Table</th>
+                        <th className="text-right py-3 px-4">Total</th>
+                        <th className="text-left py-3 px-4">Status</th>
+                        <th className="text-left py-3 px-4">Payment Method</th>
+                        <th className="text-center py-3 px-4">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {historyOrders
+                        .slice(
+                          (historyFilters.page - 1) * historyFilters.perPage,
+                          historyFilters.page * historyFilters.perPage
+                        )
+                        .map((order) => {
+                          const total = order.items.reduce(
+                            (sum, item) => sum + (item.price || 0) * (item.quantity || 1),
+                            0
+                          );
+                          return (
+                            <tr key={order.id} className="border-b">
+                              <td className="py-3 px-4">{order.order_number || order.id}</td>
+                              <td className="text-center py-3 px-4">
+                                {formatToIST(new Date(order.created_at))}
+                              </td>
+                              <td className="text-center py-3 px-4">{order.table_id || 'N/A'}</td>
+                              <td className="text-right py-3 px-4">₹{total.toFixed(2)}</td>
+                              <td className="py-3 px-4">{order.status}</td>
+                              <td className="py-3 px-4">{order.payment_type || 'N/A'}</td>
+                              <td className="text-center py-3 px-4 flex items-center gap-2 justify-center">
+                                <button
+                                  className="text-blue-600 hover:text-blue-800"
+                                  onClick={() => setViewingOrder(order)}
+                                  aria-label={`View invoice for order ${order.order_number || order.id}`}
+                                >
+                                  View
+                                </button>
+                                <button
+                                  className="text-gray-600 hover:text-gray-800"
+                                  onClick={() => printBill(order)}
+                                  aria-label={`Print invoice for order ${order.order_number || order.id}`}
+                                >
+                                  <PrinterIcon className="h-5 w-5" />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                  <div className="flex justify-between items-center mt-4">
+                    <button
+                      className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 disabled:bg-gray-300 disabled:opacity-50"
+                      onClick={() => setHistoryFilters({ ...historyFilters, page: historyFilters.page - 1 })}
+                      disabled={historyFilters.page === 1}
+                      aria-label="Previous page"
+                    >
+                      Previous
+                    </button>
+                    <span>
+                      Page {historyFilters.page} of {Math.ceil(historyOrders.length / historyFilters.perPage)}
+                    </span>
+                    <button
+                      className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 disabled:bg-gray-300 disabled:opacity-50"
+                      onClick={() => setHistoryFilters({ ...historyFilters, page: historyFilters.page + 1 })}
+                      disabled={historyFilters.page * historyFilters.perPage >= historyOrders.length}
+                      aria-label="Next page"
+                    >
+                      Next
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {viewingOrder && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] mx-2 sm:mx-4 flex flex-col overflow-hidden">
+                <div className="p-4 sm:p-6 border-b shrink-0">
+                  <h3 className="text-xl font-bold text-gray-900">
+                    Invoice #{viewingOrder.order_number || viewingOrder.id}
+                  </h3>
+                  <p className="text-sm text-gray-600 mt-1">
+                    {formatToIST(new Date(viewingOrder.created_at))}
+                  </p>
+                  <p className="text-sm text-gray-500 mt-1">Table {viewingOrder.table_id || 'N/A'}</p>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Payment Method: {viewingOrder.payment_type || 'N/A'}
+                  </p>
+                </div>
+                <div className="flex-1 overflow-y-auto px-4 sm:p-6">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-gray-200">
+                        <th className="text-left py-2 px-3 text-sm font-medium text-gray-700">Item</th>
+                        <th className="text-right py-2 px-3 text-sm font-medium text-gray-700">Qty</th>
+                        <th className="text-right py-2 px-3 text-sm font-medium text-gray-700">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {viewingOrder.items.map((item, index) => (
+                        <tr key={`${item.item_id}-${index}`} className={index % 2 === 0 ? 'bg-gray-50' : ''}>
+                          <td className="py-2 px-3 text-sm text-gray-600">{item.name || 'N/A'}</td>
+                          <td className="text-right py-2 px-3 text-sm text-gray-600">{item.quantity || 1}</td>
+                          <td className="text-right py-2 px-3 text-sm text-gray-600">
+                            ₹{((item.price || 0) * (item.quantity || 1)).toFixed(2)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="p-4 sm:p-6 border-t shrink-0">
+                  <div className="flex justify-between items-center mb-4 font-semibold text-sm sm:text-base">
+                    <span>Total</span>
+                    <span>
+                      ₹{viewingOrder.items
+                        .reduce((sum, item) => sum + (item.price || 0) * (item.quantity || 1), 0)
+                        .toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <button
+                      className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600 transition text-sm sm:text-base"
+                      onClick={() => setViewingOrder(null)}
+                      aria-label="Close invoice"
+                    >
+                      Close
+                    </button>
+                    <button
+                      className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition text-sm sm:text-base flex items-center gap-1"
+                      onClick={() => printBill(viewingOrder)}
+                      aria-label={`Print invoice for order ${viewingOrder.order_number || viewingOrder.id}`}
+                    >
+                      <PrinterIcon className="h-4 w-4 sm:h-5 sm:w-5" />
+                      Print
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'Menu Management' && (
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900 mb-6">Menu Management</h2>
+              <div className="bg-white p-6 rounded-lg shadow-md mb-6">
+                <h3 className="text-lg font-semibold mb-4">Add New Item</h3>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Name</label>
+                    <input
+                      type="text"
+                      value={newItem.name}
+                      onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
+                      className="border p-2 rounded-md w-full"
+                      aria-label="Item name"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Category</label>
+                    <input
+                      type="text"
+                      value={newItem.category}
+                      onChange={(e) => setNewItem({ ...newItem, category: e.target.value })}
+                      className="border p-2 rounded-md w-full"
+                      aria-label="Item category"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Price</label>
+                    <input
+                      type="number"
+                      value={newItem.price}
+                      onChange={(e) => setNewItem({ ...newItem, price: e.target.value })}
+                      className="border p-2 rounded-md w-full"
+                      aria-label="Item price"
+                    />
+                  </div>
+                  <div className="flex items-center">
+                    <label className="flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={newItem.is_available}
+                        onChange={(e) => setNewItem({ ...newItem, is_available: e.target.checked })}
+                        className="mr-2"
+                        aria-label="Item availability"
+                      />
+                      Available
+                    </label>
+                  </div>
+                </div>
+                <button
+                  className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition"
+                  onClick={addMenuItem}
+                  aria-label="Add menu item"
+                >
+                  Add Item
+                </button>
+              </div>
+              <h3 className="text-lg font-semibold mb-4">Menu Items</h3>
+              <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+                <table className="w-full table-auto">
                   <thead>
-                    <tr className="border-b">
-                      <th className="text-left py-2">Item</th>
-                      <th className="text-right py-2">Qty</th>
-                      <th className="text-right py-2">Price</th>
-                      <th className="text-center py-2">Actions</th>
+                    <tr className="bg-gray-50 border-b">
+                      <th className="text-left py-3 px-3 text-sm font-semibold text-gray-700">Name</th>
+                      <th className="text-left py-3 px-3 text-sm font-semibold text-gray-700">Category</th>
+                      <th className="text-right py-3 px-3 text-sm font-semibold text-gray-700">Price</th>
+                      <th className="text-center py-3 px-5 text-sm font-semibold text-gray-700">Available</th>
+                      <th className="text-center py-3 px-5 text-sm font-semibold text-gray-700">Image</th>
+                      <th className="text-center py-3 px-5 text-sm font-semibold text-gray-700">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {editedItems.map((item, index) => (
-                      <tr key={`${item.item_id}-${index}`}>
-                        <td className="py-2">{item.name || 'N/A'}</td>
-                        <td className="text-right py-2">
-                          <div className="flex items-center justify-end gap-2">
-                            <button
-                              className="bg-gray-200 text-gray-800 px-3 py-1 rounded hover:bg-gray-300"
-                              onClick={() => updateQuantity(index, -1)}
-                              aria-label={`Decrease quantity for ${item.name}`}
-                            >
-                              -
-                            </button>
-                            <span>{item.quantity || 1}</span>
-                            <button
-                              className="bg-gray-200 text-gray-800 px-3 py-1 rounded hover:bg-gray-300"
-                              onClick={() => updateQuantity(index, 1)}
-                              aria-label={`Increase quantity for ${item.name}`}
-                            >
-                              +
-                            </button>
-                          </div>
+                    {menuItems.map((item, index) => (
+                      <tr
+                        key={item.id}
+                        className={`border-b ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-gray-100 transition-colors`}
+                      >
+                        <td className="py-3 px-4 text-sm text-gray-800">{item.name || 'N/A'}</td>
+                        <td className="py-3 px-4 text-sm text-gray-600">{item.category || 'N/A'}</td>
+                        <td className="text-right py-3 px-4 text-sm text-gray-600">
+                          ₹{(item.price || 0).toFixed(2)}
                         </td>
-                        <td className="text-right py-2">
-                          ₹{((item.price || 0) * (item.quantity || 1)).toFixed(2)}
+                        <td className="text-center py-3 px-5">
+                          {item.is_available ? (
+                            <CheckCircleIcon className="h-4 w-4 text-green-600 mx-auto" />
+                          ) : (
+                            <XCircleIcon className="h-4 w-4 text-red-600 mx-auto" />
+                          )}
                         </td>
-                        <td className="text-center py-2">
+                        <td className="text-center py-3 px-5">
+                          {item.image_url ? (
+                            <img
+                              src={item.image_url}
+                              alt={`Image of ${item.name || 'menu item'}`}
+                              className="h-12 w-12 rounded-md object-cover mx-auto"
+                            />
+                          ) : (
+                            <span className="text-gray-500 text-sm">No Image</span>
+                          )}
+                        </td>
+                        <td className="text-center py-3 px-4 flex items-center justify-center gap-2">
+                          <label className="cursor-pointer">
+                            <ArrowUpTrayIcon className="h-5 w-5 text-blue-600 hover:text-blue-800" />
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={(e) => uploadImage(item.id, e.target.files[0])}
+                              aria-label={`Upload image for ${item.name}`}
+                            />
+                          </label>
+                          <button
+                            className="text-red-600 hover:text-red-800 disabled:opacity-50"
+                            onClick={() => deleteImage(item.id, item.image_url)}
+                            disabled={!item.image_url}
+                            aria-label={`Delete image for ${item.name}`}
+                          >
+                            <XMarkIcon className="h-5 w-5" />
+                          </button>
+                          <button
+                            className="text-blue-600 hover:text-blue-800 text-sm"
+                            onClick={() => toggleAvailability(item.id, item.is_available)}
+                            aria-label={`Toggle availability for ${item.name}`}
+                          >
+                            {item.is_available ? 'Disable' : 'Enable'}
+                          </button>
                           <button
                             className="text-red-600 hover:text-red-800"
-                            onClick={() => removeItem(index)}
-                            aria-label={`Remove item ${item.name}`}
+                            onClick={() => removeMenuItem(item.id)}
+                            aria-label={`Remove ${item.name}`}
                           >
                             <TrashIcon className="h-5 w-5" />
                           </button>
@@ -1146,501 +1558,120 @@ export default function Admin() {
                     ))}
                   </tbody>
                 </table>
-                <div className="mb-4">
-                  <label className="block text-sm font-medium mb-1">Add Item</label>
-                  <select
-                    className="border p-2 w-full rounded-md"
-                    onChange={(e) => addItem(e.target.value)}
-                    value=""
-                    aria-label="Add item to order"
-                  >
-                    <option value="">Select item</option>
-                    {menuItems
-                      .filter((item) => item.is_available)
-                      .map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.name} (₹{(item.price || 0).toFixed(2)})
-                        </option>
-                      ))}
-                  </select>
-                </div>
-              </div>
-              <div className="p-4 border-t flex justify-end gap-4">
-                <button
-                  className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 transition"
-                  onClick={cancelEdit}
-                  aria-label="Cancel edit"
-                >
-                  Cancel
-                </button>
-                <button
-                  className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition"
-                  onClick={saveOrder}
-                  aria-label="Save order changes"
-                >
-                  Update Order
-                </button>
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {activeTab === 'Order History' && (
-          <div>
-            <h2 className="text-2xl font-semibold text-gray-800 mb-6">Order History</h2>
-            <div className="bg-white p-6 rounded-lg shadow-md mb-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Date Range</label>
-                  <select
-                    className="border p-2 w-full rounded-md"
-                    value={historyFilters.dateRange}
-                    onChange={(e) =>
-                      setHistoryFilters({ ...historyFilters, dateRange: e.target.value, page: 1 })
-                    }
-                    aria-label="Select date range"
+          {activeTab === 'Data Analytics' && (
+            <div>
+              <h2 className="text-2xl font-bold text-gray-800 mb-6">Analytics</h2>
+              {isLoadingAnalytics ? (
+                <p className="text-gray-500 text-center">Loading analytics...</p>
+              ) : error ? (
+                <div className="bg-red-100 text-red-700 p-4 rounded-lg mb-6" role="alert">
+                  {error}
+                  <button
+                    className="ml-4 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
+                    onClick={fetchAnalytics}
+                    aria-label="Retry fetching analytics"
                   >
-                    <option value="today">Today</option>
-                    <option value="yesterday">Yesterday</option>
-                    <option value="last7days">Last 7 Days</option>
-                    <option value="custom">Custom Range</option>
-                  </select>
-                  {historyFilters.dateRange === 'custom' && (
-                    <div className="mt-2 flex gap-2">
+                    Retry
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+                    <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white p-6 rounded-lg shadow-md">
+                      <h3 className="text-lg font-semibold mb-2">Total Orders</h3>
+                      <p className="text-2xl font-bold">{analytics.totalOrders}</p>
+                    </div>
+                    <div className="bg-gradient-to-r from-green-500 to-green-600 text-white p-6 rounded-lg shadow-md">
+                      <h3 className="text-lg font-semibold mb-2">Total Revenue</h3>
+                      <p className="text-2xl font-bold">₹{(analytics.totalRevenue || 0).toFixed(2)}</p>
+                    </div>
+                    <div className="bg-gradient-to-r from-purple-500 to-purple-600 text-white p-6 rounded-lg shadow-md">
+                      <h3 className="text-lg font-semibold mb-2">Most Sold Item</h3>
+                      <p className="text-2xl font-bold">{analytics.mostSoldItem[0]}</p>
+                      <p className="text-sm">{analytics.mostSoldItem[1]} sold</p>
+                    </div>
+                    <div className="bg-gradient-to-r from-orange-500 to-orange-600 text-white p-6 rounded-lg shadow-md">
+                      <h3 className="text-lg font-semibold mb-2">Peak Hour</h3>
+                      <p className="text-2xl font-bold">{analytics.peakHour}</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+                    <div className="bg-gradient-to-r from-teal-500 to-teal-600 text-white p-6 rounded-lg shadow-md">
+                      <h3 className="text-lg font-semibold mb-2">Weekly Revenue</h3>
+                      <p className="text-2xl font-bold">₹{(weeklyRevenue || 0).toFixed(2)}</p>
+                    </div>
+                    <div className="bg-gradient-to-r from-indigo-500 to-indigo-600 text-white p-6 rounded-lg shadow-md">
+                      <h3 className="text-lg font-semibold mb-2">Monthly Revenue</h3>
+                      <p className="text-2xl font-bold">₹{(monthlyRevenue || 0).toFixed(2)}</p>
+                    </div>
+                    <div className="bg-gradient-to-r from-pink-500 to-pink-600 text-white p-6 rounded-lg shadow-md">
+                      <h3 className="text-lg font-semibold mb-2">Average Order Value</h3>
+                      <p className="text-2xl font-bold">₹{(analytics.aov || 0).toFixed(2)}</p>
+                    </div>
+                    <div className="bg-gradient-to-r from-yellow-500 to-yellow-600 text-white p-6 rounded-lg shadow-md">
+                      <h3 className="text-lg font-semibold mb-2">Total Items Sold</h3>
+                      <p className="text-2xl font-bold">{analytics.totalItemsSold}</p>
+                    </div>
+                  </div>
+                  <div className="bg-white p-6 rounded-lg shadow-md">
+                    <h3 className="text-lg font-semibold mb-4">Export Orders</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div>
+                        <label className="block text-sm font-medium mb-1">Export Type</label>
+                        <select
+                          className="border p-2 w-full rounded-md"
+                          value={exportType}
+                          onChange={(e) => setExportType(e.target.value)}
+                          aria-label="Select export type"
+                        >
+                          <option value="order">Order Summary</option>
+                          <option value="items">Items</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Start Date</label>
                         <DatePicker
-                          selected={historyFilters.customStart}
-                          onChange={(date) =>
-                            setHistoryFilters({ ...historyFilters, customStart: date, page: 1 })
-                          }
+                          selected={exportFilters.startDate}
+                          onChange={(date) => setExportFilters({ ...exportFilters, startDate: date })}
                           className="border p-2 rounded-md w-full"
-                          aria-label="Select start date"
+                          aria-label="Select start date for export"
                         />
                       </div>
                       <div>
+                        <label className="block text-sm font-medium mb-1">End Date</label>
                         <DatePicker
-                          selected={historyFilters.customEnd}
-                          onChange={(date) =>
-                            setHistoryFilters({ ...historyFilters, customEnd: date, page: 1 })
-                          }
+                          selected={exportFilters.endDate}
+                          onChange={(date) => setExportFilters({ ...exportFilters, endDate: date })}
                           className="border p-2 rounded-md w-full"
-                          aria-label="Select end date"
+                          aria-label="Select end date for export"
                         />
                       </div>
                     </div>
-                  )}
-                </div>
-                <StatusFilter
-                  label="Status"
-                  statuses={historyFilters.statuses}
-                  onChange={(newStatuses) =>
-                    setHistoryFilters({ ...historyFilters, statuses: newStatuses, page: 1 })
-                  }
-                />
-              </div>
-            </div>
-            {historyOrders.length === 0 ? (
-              <p className="text-gray-500 text-center">No orders found.</p>
-            ) : (
-              <>
-                <table className="w-full bg-white rounded-lg shadow-md">
-                  <thead>
-                    <tr className="border-b">
-                      <th className="text-left py-3 px-4">Order ID</th>
-                      <th className="text-center py-3 px-4">Date</th>
-                      <th className="text-center py-3 px-4">Table</th>
-                      <th className="text-right py-3 px-4">Total</th>
-                      <th className="text-left py-3 px-4">Status</th>
-                      <th className="text-left py-3 px-4">Payment Method</th>
-                      <th className="text-center py-3 px-4">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {historyOrders
-                      .slice(
-                        (historyFilters.page - 1) * historyFilters.perPage,
-                        historyFilters.page * historyFilters.perPage
-                      )
-                      .map((order) => {
-                        const total = order.items.reduce(
-                          (sum, item) => sum + (item.price || 0) * (item.quantity || 1),
-                          0
-                        );
-                        return (
-                          <tr key={order.id} className="border-b">
-                            <td className="py-3 px-4">{order.order_number || order.id}</td>
-                            <td className="text-center py-3 px-4">
-                              {formatToIST(new Date(order.created_at))}
-                            </td>
-                            <td className="text-center py-3 px-4">{order.table_id || 'N/A'}</td>
-                            <td className="text-right py-3 px-4">₹{total.toFixed(2)}</td>
-                            <td className="py-3 px-4">{order.status}</td>
-                            <td className="py-3 px-4">{order.payment_type || 'N/A'}</td>
-                            <td className="text-center py-3 px-4 flex items-center gap-2 justify-center">
-                              <button
-                                className="text-blue-600 hover:text-blue-800"
-                                onClick={() => setViewingOrder(order)}
-                                aria-label={`View invoice for order ${order.order_number || order.id}`}
-                              >
-                                View
-                              </button>
-                              <button
-                                className="text-gray-600 hover:text-gray-800"
-                                onClick={() => printBill(order)}
-                                aria-label={`Print invoice for order ${order.order_number || order.id}`}
-                              >
-                                <PrinterIcon className="h-5 w-5" />
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                  </tbody>
-                </table>
-                <div className="flex justify-between items-center mt-4">
-                  <button
-                    className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 disabled:bg-gray-300 disabled:opacity-50"
-                    onClick={() => setHistoryFilters({ ...historyFilters, page: historyFilters.page - 1 })}
-                    disabled={historyFilters.page === 1}
-                    aria-label="Previous page"
-                  >
-                    Previous
-                  </button>
-                  <span>
-                    Page {historyFilters.page} of {Math.ceil(historyOrders.length / historyFilters.perPage)}
-                  </span>
-                  <button
-                    className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 disabled:bg-gray-300 disabled:opacity-50"
-                    onClick={() => setHistoryFilters({ ...historyFilters, page: historyFilters.page + 1 })}
-                    disabled={historyFilters.page * historyFilters.perPage >= historyOrders.length}
-                    aria-label="Next page"
-                  >
-                    Next
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        )}
-
-        {viewingOrder && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] mx-2 sm:mx-4 flex flex-col overflow-hidden">
-              <div className="p-4 sm:p-6 border-b shrink-0">
-                <h3 className="text-xl font-bold text-gray-900">
-                  Invoice #{viewingOrder.order_number || viewingOrder.id}
-                </h3>
-                <p className="text-sm text-gray-600 mt-1">
-                  {formatToIST(new Date(viewingOrder.created_at))}
-                </p>
-                <p className="text-sm text-gray-500 mt-1">Table {viewingOrder.table_id || 'N/A'}</p>
-                <p className="text-sm text-gray-600 mt-1">
-                  Payment Method: {viewingOrder.payment_type || 'N/A'}
-                </p>
-              </div>
-              <div className="flex-1 overflow-y-auto px-4 sm:p-6">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-gray-200">
-                      <th className="text-left py-2 px-3 text-sm font-medium text-gray-700">Item</th>
-                      <th className="text-right py-2 px-3 text-sm font-medium text-gray-700">Qty</th>
-                      <th className="text-right py-2 px-3 text-sm font-medium text-gray-700">Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {viewingOrder.items.map((item, index) => (
-                      <tr key={`${item.item_id}-${index}`} className={index % 2 === 0 ? 'bg-gray-50' : ''}>
-                        <td className="py-2 px-3 text-sm text-gray-600">{item.name || 'N/A'}</td>
-                        <td className="text-right py-2 px-3 text-sm text-gray-600">{item.quantity || 1}</td>
-                        <td className="text-right py-2 px-3 text-sm text-gray-600">
-                          ₹{((item.price || 0) * (item.quantity || 1)).toFixed(2)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div className="p-4 sm:p-6 border-t shrink-0">
-                <div className="flex justify-between items-center mb-4 font-semibold text-sm sm:text-base">
-                  <span>Total</span>
-                  <span>
-                    ₹{viewingOrder.items
-                      .reduce((sum, item) => sum + (item.price || 0) * (item.quantity || 1), 0)
-                      .toFixed(2)}
-                  </span>
-                </div>
-                <div className="flex justify-end gap-2">
-                  <button
-                    className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600 transition text-sm sm:text-base"
-                    onClick={() => setViewingOrder(null)}
-                    aria-label="Close invoice"
-                  >
-                    Close
-                  </button>
-                  <button
-                    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition text-sm sm:text-base flex items-center gap-1"
-                    onClick={() => printBill(viewingOrder)}
-                    aria-label={`Print invoice for order ${viewingOrder.order_number || viewingOrder.id}`}
-                  >
-                    <PrinterIcon className="h-4 w-4 sm:h-5 sm:w-5" />
-                    Print
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'Menu Management' && (
-          <div>
-            <h2 className="text-2xl font-bold text-gray-900 mb-6">Menu Management</h2>
-            <div className="bg-white p-6 rounded-lg shadow-md mb-6">
-              <h3 className="text-lg font-semibold mb-4">Add New Item</h3>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Name</label>
-                  <input
-                    type="text"
-                    value={newItem.name}
-                    onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
-                    className="border p-2 rounded-md w-full"
-                    aria-label="Item name"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Category</label>
-                  <input
-                    type="text"
-                    value={newItem.category}
-                    onChange={(e) => setNewItem({ ...newItem, category: e.target.value })}
-                    className="border p-2 rounded-md w-full"
-                    aria-label="Item category"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Price</label>
-                  <input
-                    type="number"
-                    value={newItem.price}
-                    onChange={(e) => setNewItem({ ...newItem, price: e.target.value })}
-                    className="border p-2 rounded-md w-full"
-                    aria-label="Item price"
-                  />
-                </div>
-                <div className="flex items-center">
-                  <label className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={newItem.is_available}
-                      onChange={(e) => setNewItem({ ...newItem, is_available: e.target.checked })}
-                      className="mr-2"
-                      aria-label="Item availability"
-                    />
-                    Available
-                  </label>
-                </div>
-              </div>
-              <button
-                className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition"
-                onClick={addMenuItem}
-                aria-label="Add menu item"
-              >
-                Add Item
-              </button>
-            </div>
-            <h3 className="text-lg font-semibold mb-4">Menu Items</h3>
-            <div className="bg-white rounded-lg shadow-lg overflow-hidden">
-              <table className="w-full table-auto">
-                <thead>
-                  <tr className="bg-gray-50 border-b">
-                    <th className="text-left py-3 px-3 text-sm font-semibold text-gray-700">Name</th>
-                    <th className="text-left py-3 px-3 text-sm font-semibold text-gray-700">Category</th>
-                    <th className="text-right py-3 px-3 text-sm font-semibold text-gray-700">Price</th>
-                    <th className="text-center py-3 px-5 text-sm font-semibold text-gray-700">Available</th>
-                    <th className="text-center py-3 px-5 text-sm font-semibold text-gray-700">Image</th>
-                    <th className="text-center py-3 px-5 text-sm font-semibold text-gray-700">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {menuItems.map((item, index) => (
-                    <tr
-                      key={item.id}
-                      className={`border-b ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-gray-100 transition-colors`}
+                    <div className="mt-4">
+                      <StatusFilter
+                        label="Status"
+                        statuses={exportFilters.statuses}
+                        onChange={(newStatuses) => setExportFilters({ ...exportFilters, statuses: newStatuses })}
+                      />
+                    </div>
+                    <button
+                      className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
+                      onClick={exportOrders}
+                      aria-label="Export orders"
                     >
-                      <td className="py-3 px-4 text-sm text-gray-800">{item.name || 'N/A'}</td>
-                      <td className="py-3 px-4 text-sm text-gray-600">{item.category || 'N/A'}</td>
-                      <td className="text-right py-3 px-4 text-sm text-gray-600">
-                        ₹{(item.price || 0).toFixed(2)}
-                      </td>
-                      <td className="text-center py-3 px-5">
-                        {item.is_available ? (
-                          <CheckCircleIcon className="h-4 w-4 text-green-600 mx-auto" />
-                        ) : (
-                          <XCircleIcon className="h-4 w-4 text-red-600 mx-auto" />
-                        )}
-                      </td>
-                      <td className="text-center py-3 px-5">
-                        {item.image_url ? (
-                          <img
-                            src={item.image_url}
-                            alt={item.name || 'Menu item'}
-                            className="h-12 w-12 rounded-md object-cover mx-auto"
-                          />
-                        ) : (
-                          <span className="text-gray-500 text-sm">No Image</span>
-                        )}
-                      </td>
-                      <td className="text-center py-3 px-4 flex items-center justify-center gap-2">
-                        <label className="cursor-pointer">
-                          <UploadIcon className="h-5 w-5 text-blue-600 hover:text-blue-800" />
-                          <input
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            onChange={(e) => uploadImage(item.id, e.target.files[0])}
-                            aria-label={`Upload image for ${item.name}`}
-                          />
-                        </label>
-                        <button
-                          className="text-red-600 hover:text-red-800 disabled:opacity-50"
-                          onClick={() => deleteImage(item.id, item.image_url)}
-                          disabled={!item.image_url}
-                          aria-label={`Delete image for ${item.name}`}
-                        >
-                          <XMarkIcon className="h-5 w-5" />
-                        </button>
-                        <button
-                          className="text-blue-600 hover:text-blue-800 text-sm"
-                          onClick={() => toggleAvailability(item.id, item.is_available)}
-                          aria-label={`Toggle availability for ${item.name}`}
-                        >
-                          {item.is_available ? 'Disable' : 'Enable'}
-                        </button>
-                        <button
-                          className="text-red-600 hover:text-red-800"
-                          onClick={() => removeMenuItem(item.id)}
-                          aria-label={`Remove ${item.name}`}
-                        >
-                          <TrashIcon className="h-5 w-5" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      Export
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
-          </div>
-        )}
-
-        {activeTab === 'Data Analytics' && (
-          <div>
-            <h2 className="text-2xl font-bold text-gray-800 mb-6">Analytics</h2>
-            {isLoadingAnalytics ? (
-              <p className="text-gray-500 text-center">Loading analytics...</p>
-            ) : error ? (
-              <div className="bg-red-100 text-red-700 p-4 rounded-lg mb-6" role="alert">
-                {error}
-                <button
-                  className="ml-4 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
-                  onClick={fetchAnalytics}
-                  aria-label="Retry fetching analytics"
-                >
-                  Retry
-                </button>
-              </div>
-            ) : (
-              <>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-                  <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white p-6 rounded-lg shadow-md">
-                    <h3 className="text-lg font-semibold mb-2">Total Orders</h3>
-                    <p className="text-2xl font-bold">{analytics.totalOrders}</p>
-                  </div>
-                  <div className="bg-gradient-to-r from-green-500 to-green-600 text-white p-6 rounded-lg shadow-md">
-                    <h3 className="text-lg font-semibold mb-2">Total Revenue</h3>
-                    <p className="text-2xl font-bold">₹{(analytics.totalRevenue || 0).toFixed(2)}</p>
-                  </div>
-                  <div className="bg-gradient-to-r from-purple-500 to-purple-600 text-white p-6 rounded-lg shadow-md">
-                    <h3 className="text-lg font-semibold mb-2">Most Sold Item</h3>
-                    <p className="text-2xl font-bold">{analytics.mostSoldItem[0]}</p>
-                    <p className="text-sm">{analytics.mostSoldItem[1]} sold</p>
-                  </div>
-                  <div className="bg-gradient-to-r from-orange-500 to-orange-600 text-white p-6 rounded-lg shadow-md">
-                    <h3 className="text-lg font-semibold mb-2">Peak Hour</h3>
-                    <p className="text-2xl font-bold">{analytics.peakHour}</p>
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-                  <div className="bg-gradient-to-r from-teal-500 to-teal-600 text-white p-6 rounded-lg shadow-md">
-                    <h3 className="text-lg font-semibold mb-2">Weekly Revenue</h3>
-                    <p className="text-2xl font-bold">₹{(weeklyRevenue || 0).toFixed(2)}</p>
-                  </div>
-                  <div className="bg-gradient-to-r from-indigo-500 to-indigo-600 text-white p-6 rounded-lg shadow-md">
-                    <h3 className="text-lg font-semibold mb-2">Monthly Revenue</h3>
-                    <p className="text-2xl font-bold">₹{(monthlyRevenue || 0).toFixed(2)}</p>
-                  </div>
-                  <div className="bg-gradient-to-r from-pink-500 to-pink-600 text-white p-6 rounded-lg shadow-md">
-                    <h3 className="text-lg font-semibold mb-2">Average Order Value</h3>
-                    <p className="text-2xl font-bold">₹{(analytics.aov || 0).toFixed(2)}</p>
-                  </div>
-                  <div className="bg-gradient-to-r from-yellow-500 to-yellow-600 text-white p-6 rounded-lg shadow-md">
-                    <h3 className="text-lg font-semibold mb-2">Total Items Sold</h3>
-                    <p className="text-2xl font-bold">{analytics.totalItemsSold}</p>
-                  </div>
-                </div>
-                <div className="bg-white p-6 rounded-lg shadow-md">
-                  <h3 className="text-lg font-semibold mb-4">Export Orders</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Export Type</label>
-                      <select
-                        className="border p-2 w-full rounded-md"
-                        value={exportType}
-                        onChange={(e) => setExportType(e.target.value)}
-                        aria-label="Select export type"
-                      >
-                        <option value="order">Order Summary</option>
-                        <option value="items">Items</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Start Date</label>
-                      <DatePicker
-                        selected={exportFilters.startDate}
-                        onChange={(date) => setExportFilters({ ...exportFilters, startDate: date })}
-                        className="border p-2 rounded-md w-full"
-                        aria-label="Select start date for export"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">End Date</label>
-                      <DatePicker
-                        selected={exportFilters.endDate}
-                        onChange={(date) => setExportFilters({ ...exportFilters, endDate: date })}
-                        className="border p-2 rounded-md w-full"
-                        aria-label="Select end date for export"
-                      />
-                    </div>
-                  </div>
-                  <div className="mt-4">
-                    <StatusFilter
-                      label="Status"
-                      statuses={exportFilters.statuses}
-                      onChange={(newStatuses) => setExportFilters({ ...exportFilters, statuses: newStatuses })}
-                    />
-                  </div>
-                  <button
-                    className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
-                    onClick={exportOrders}
-                    aria-label="Export orders"
-                  >
-                    Export
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        )}
+          )}
+        </div>
       </div>
-    </div>
+    </ErrorBoundary>
   );
 }
