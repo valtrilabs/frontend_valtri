@@ -12,6 +12,8 @@ import {
   XCircleIcon,
   ClockIcon,
   PencilSquareIcon,
+  UploadIcon,
+  XMarkIcon,
 } from '@heroicons/react/24/outline';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
@@ -57,7 +59,7 @@ export default function Admin() {
     totalOrders: 0,
     totalRevenue: 0,
     mostSoldItem: ['N/A', 0],
-    peakHour: 'N/A',
+    peakHour: 0,
     aov: 0,
     totalItemsSold: 0,
   });
@@ -66,12 +68,13 @@ export default function Admin() {
     localStorage.setItem('activeTab', activeTab);
   }, [activeTab]);
 
-  // Convert UTC-parsed created_at to IST for display
+  // Format date to IST
   const formatToIST = (date) => {
     const utcDate = new Date(date);
     const istDate = add(utcDate, { hours: 5, minutes: 30 });
     return format(istDate, 'dd/MM/yyyy HH:mm:ss');
   };
+
   const formatToISTDateOnly = (date) => {
     const utcDate = new Date(date);
     const istDate = add(utcDate, { hours: 5, minutes: 30 });
@@ -83,14 +86,17 @@ export default function Admin() {
       const {
         data: { session },
       } = await supabase.auth.getSession();
-      if (session) setIsLoggedIn(true);
-      else router.push('/admin');
+      if (session) {
+        setIsLoggedIn(true);
+      } else {
+        router.push('/admin/login');
+      }
     };
     checkSession();
   }, [router]);
 
   useEffect(() => {
-    async function fetchOrders() {
+    const fetchOrders = async () => {
       try {
         setError(null);
         const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || '';
@@ -101,12 +107,16 @@ export default function Admin() {
             const response = await fetch(`${apiUrl}/api/admin/orders`, { cache: 'no-store' });
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const data = await response.json();
-            setOrders(data || []);
+            const sortedOrders = (data || []).sort(
+              (a, b) => new Date(b.created_at) - new Date(a.created_at)
+            );
+            setOrders(sortedOrders);
             break;
           } catch (err) {
-            attempts++;
+            attempts += 1;
             if (attempts === maxRetries) {
-              throw new Error(`Failed to fetch orders after ${maxRetries} attempts: ${err.message}`);
+              setError(`Failed to fetch orders after ${maxRetries} attempts: ${err.message}`);
+              break;
             }
             await new Promise((resolve) => setTimeout(resolve, 1000 * attempts));
           }
@@ -114,12 +124,12 @@ export default function Admin() {
       } catch (err) {
         setError(`Failed to fetch orders: ${err.message}`);
       }
-    }
+    };
     if (isLoggedIn && activeTab === 'Pending Orders') fetchOrders();
   }, [isLoggedIn, activeTab]);
 
   useEffect(() => {
-    if (!isLoggedIn || activeTab !== 'Pending Orders') return;
+    if (!isLoggedIn || activeTab !== 'Pending Orders') return undefined;
     const subscription = supabase
       .channel('pending-orders-channel')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, async (payload) => {
@@ -134,10 +144,15 @@ export default function Admin() {
                 const response = await fetch(`${apiUrl}/api/orders/${newOrder.id}`, { cache: 'no-store' });
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
                 const orderDetails = await response.json();
-                setOrders((prevOrders) => [...prevOrders, orderDetails]);
+                setOrders((prevOrders) => {
+                  const updatedOrders = [orderDetails, ...prevOrders];
+                  return updatedOrders.sort(
+                    (a, b) => new Date(b.created_at) - new Date(a.created_at)
+                  );
+                });
                 break;
               } catch (err) {
-                attempts++;
+                attempts += 1;
                 if (attempts === maxRetries) {
                   setError(`Failed to fetch new order after ${maxRetries} attempts: ${err.message}`);
                   break;
@@ -158,10 +173,12 @@ export default function Admin() {
       })
       .subscribe();
 
-    return () => supabase.removeChannel(subscription);
+    return () => {
+      supabase.removeChannel(subscription);
+    };
   }, [isLoggedIn, activeTab]);
 
-  async function fetchAnalytics() {
+  const fetchAnalytics = async () => {
     setIsLoadingAnalytics(true);
     setError(null);
     const maxRetries = 3;
@@ -204,7 +221,7 @@ export default function Admin() {
             if (endpoint === 'total-items-sold') analyticsData.totalItemsSold = data.totalItemsSold || 0;
             break;
           } catch (err) {
-            attempts++;
+            attempts += 1;
             if (attempts === maxRetries) {
               setError(`Failed to fetch ${endpoint} data after ${maxRetries} attempts: ${err.message}`);
             }
@@ -218,7 +235,7 @@ export default function Admin() {
     } finally {
       setIsLoadingAnalytics(false);
     }
-  }
+  };
 
   useEffect(() => {
     if (isLoggedIn && activeTab === 'Data Analytics') {
@@ -227,14 +244,13 @@ export default function Admin() {
   }, [isLoggedIn, activeTab]);
 
   useEffect(() => {
-    async function fetchRevenueData() {
+    const fetchRevenueData = async () => {
       try {
         setError(null);
         const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || '';
         const now = new Date();
         const maxRetries = 3;
 
-        // Weekly revenue (last 7 days)
         const weekStart = new Date(now);
         weekStart.setDate(now.getDate() - 7);
         weekStart.setHours(0, 0, 0, 0);
@@ -255,7 +271,7 @@ export default function Admin() {
             setWeeklyRevenue(weekData.totalRevenue || 0);
             break;
           } catch (err) {
-            weekAttempts++;
+            weekAttempts += 1;
             if (weekAttempts === maxRetries) {
               setError(`Failed to fetch weekly revenue after ${maxRetries} attempts: ${err.message}`);
             }
@@ -263,7 +279,6 @@ export default function Admin() {
           }
         }
 
-        // Monthly revenue (last 30 days)
         const monthStart = new Date(now);
         monthStart.setDate(now.getDate() - 30);
         monthStart.setHours(0, 0, 0, 0);
@@ -284,7 +299,7 @@ export default function Admin() {
             setMonthlyRevenue(monthData.totalRevenue || 0);
             break;
           } catch (err) {
-            monthAttempts++;
+            monthAttempts += 1;
             if (monthAttempts === maxRetries) {
               setError(`Failed to fetch monthly revenue after ${maxRetries} attempts: ${err.message}`);
             }
@@ -294,21 +309,21 @@ export default function Admin() {
       } catch (err) {
         setError(`Failed to fetch revenue data: ${err.message}`);
       }
-    }
+    };
     if (isLoggedIn && activeTab === 'Data Analytics') fetchRevenueData();
   }, [isLoggedIn, activeTab]);
 
   useEffect(() => {
-    async function fetchMenu() {
+    const fetchMenu = async () => {
       try {
         setError(null);
-        const { data, error } = await supabase.from('menu_items').select('*');
-        if (error) throw error;
+        const { data, error: fetchError } = await supabase.from('menu_items').select('*');
+        if (fetchError) throw fetchError;
         setMenuItems(data || []);
       } catch (err) {
         setError(`Failed to fetch menu: ${err.message}`);
       }
-    }
+    };
     if (isLoggedIn) fetchMenu();
   }, [isLoggedIn]);
 
@@ -316,7 +331,8 @@ export default function Admin() {
     try {
       setError(null);
       const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || '';
-      let startDate, endDate;
+      let startDate;
+      let endDate;
       const today = new Date();
       const maxRetries = 3;
       switch (historyFilters.dateRange) {
@@ -368,7 +384,7 @@ export default function Admin() {
           setHistoryOrders(data || []);
           break;
         } catch (err) {
-          attempts++;
+          attempts += 1;
           if (attempts === maxRetries) {
             setError(`Failed to fetch order history after ${maxRetries} attempts: ${err.message}`);
           }
@@ -387,8 +403,8 @@ export default function Admin() {
   const handleLogin = async () => {
     try {
       setError(null);
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) throw error;
+      const { error: loginError } = await supabase.auth.signInWithPassword({ email, password });
+      if (loginError) throw loginError;
       setIsLoggedIn(true);
     } catch (err) {
       setError(`Login failed: ${err.message}`);
@@ -426,7 +442,7 @@ export default function Admin() {
           setPaymentType('');
           break;
         } catch (err) {
-          attempts++;
+          attempts += 1;
           if (attempts === maxRetries) {
             throw new Error(`Failed to mark order as paid after ${maxRetries} attempts: ${err.message}`);
           }
@@ -456,7 +472,7 @@ export default function Admin() {
   };
 
   const addItem = (itemId) => {
-    const menuItem = menuItems.find((item) => item.id === parseInt(itemId));
+    const menuItem = menuItems.find((item) => item.id === parseInt(itemId, 10));
     if (menuItem && !editedItems.some((item) => item.item_id === menuItem.id)) {
       setEditedItems((prev) => [
         ...prev,
@@ -487,12 +503,15 @@ export default function Admin() {
           });
           if (!response.ok) throw new Error(`HTTP ${response.status}`);
           const updatedOrder = await response.json();
-          setOrders((prev) => prev.map((o) => (o.id === editingOrder.id ? updatedOrder : o)));
+          setOrders((prev) => {
+            const updatedOrders = prev.map((o) => (o.id === editingOrder.id ? updatedOrder : o));
+            return updatedOrders.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+          });
           setEditingOrder(null);
           setEditedItems([]);
           break;
         } catch (err) {
-          attempts++;
+          attempts += 1;
           if (attempts === maxRetries) {
             throw new Error(`Failed to update order after ${maxRetries} attempts: ${err.message}`);
           }
@@ -516,7 +535,7 @@ export default function Admin() {
     }
     try {
       setError(null);
-      const { data, error } = await supabase
+      const { data, error: insertError } = await supabase
         .from('menu_items')
         .insert([
           {
@@ -527,7 +546,7 @@ export default function Admin() {
           },
         ])
         .select();
-      if (error) throw error;
+      if (insertError) throw insertError;
       setMenuItems((prev) => [...prev, data[0]]);
       setNewItem({ name: '', category: '', price: '', is_available: true });
     } catch (err) {
@@ -538,8 +557,8 @@ export default function Admin() {
   const removeMenuItem = async (itemId) => {
     try {
       setError(null);
-      const { error } = await supabase.from('menu_items').delete().eq('id', itemId);
-      if (error) throw error;
+      const { error: deleteError } = await supabase.from('menu_items').delete().eq('id', itemId);
+      if (deleteError) throw deleteError;
       setMenuItems((prev) => prev.filter((item) => item.id !== itemId));
     } catch (err) {
       setError(`Failed to remove item: ${err.message}`);
@@ -549,11 +568,11 @@ export default function Admin() {
   const toggleAvailability = async (itemId, currentStatus) => {
     try {
       setError(null);
-      const { error } = await supabase
+      const { error: updateError } = await supabase
         .from('menu_items')
         .update({ is_available: !currentStatus })
         .eq('id', itemId);
-      if (error) throw error;
+      if (updateError) throw updateError;
       setMenuItems((prev) =>
         prev.map((item) => (item.id === itemId ? { ...item, is_available: !currentStatus } : item))
       );
@@ -786,7 +805,7 @@ export default function Admin() {
           exportData = await response.text();
           break;
         } catch (err) {
-          attempts++;
+          attempts += 1;
           if (attempts === maxRetries) {
             throw new Error(`Failed to export orders after ${maxRetries} attempts: ${err.message}`);
           }
@@ -945,7 +964,7 @@ export default function Admin() {
             {orders.length === 0 ? (
               <p className="text-gray-500 text-center text-lg">No pending orders at this moment</p>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {orders.map((order) => {
                   const total = order.items.reduce(
                     (sum, item) => sum + (item.price || 0) * (item.quantity || 1),
@@ -953,62 +972,64 @@ export default function Admin() {
                   );
                   const formattedDate = formatToIST(new Date(order.created_at));
                   return (
-                    <div key={order.id} className="bg-white p-6 rounded-xl shadow-lg flex flex-col">
-                      <div className="flex justify-between items-start mb-5 flex-wrap gap-4">
+                    <div
+                      key={order.id}
+                      className="bg-white p-6 rounded-xl shadow-md hover:shadow-lg transition-shadow duration-200 border border-gray-200 flex flex-col"
+                    >
+                      <div className="flex justify-between items-start mb-4 flex-wrap gap-4">
                         <div>
-                          <h3 className="text-xl font-semibold text-gray-600">
+                          <h3 className="text-lg font-semibold text-gray-900">
                             Order #{order.order_number || order.id}
                           </h3>
-                          <p className="text-sm text-gray-500">{formattedDate}</p>
-                          <p className="text-sm text-gray-500">Table {order.table_id || 'N/A'}</p>
+                          <p className="text-sm text-gray-600 mt-1">{formattedDate}</p>
+                          <p className="text-sm text-gray-600">Table {order.table_id || 'N/A'}</p>
                         </div>
-                        <div className="flex gap-3">
+                        <div className="flex gap-2 flex-wrap">
                           <button
-                            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2 whitespace-nowrap"
+                            className="bg-blue-600 text-white px-3 py-1.5 rounded-md hover:bg-blue-700 flex items-center gap-1 text-sm transition"
                             onClick={() => startEditing(order)}
                             aria-label={`Edit order ${order.order_number || order.id}`}
                           >
-                            <PencilSquareIcon className="h-5 w-5" />
+                            <PencilSquareIcon className="h-4 w-4" />
                             Edit
                           </button>
                           <button
-                            className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 flex items-center gap-2 whitespace-nowrap"
+                            className="bg-green-600 text-white px-3 py-1.5 rounded-md hover:bg-green-700 flex items-center gap-1 text-sm transition"
                             onClick={() => initiateMarkAsPaid(order.id)}
                             aria-label={`Mark order ${order.order_number || order.id} as paid`}
                           >
-                            Mark as Paid
+                            Mark Paid
                           </button>
                           <button
-                            className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 flex items-center gap-2 whitespace-nowrap"
+                            className="bg-gray-600 text-white px-3 py-1.5 rounded-md hover:bg-gray-700 flex items-center gap-1 text-sm transition"
                             onClick={() => printBill(order)}
                             aria-label={`Print bill for order ${order.order_number || order.id}`}
                           >
-                            <PrinterIcon className="h-5 w-5" />
-                            Print Bill
+                            <PrinterIcon className="h-4 w-4" />
+                            Print
                           </button>
                         </div>
                       </div>
                       <div className="overflow-x-auto">
-                        <table className="w-full min-w-[320px] table-auto border-collapse">
+                        <table className="w-full min-w-[320px] text-sm">
                           <thead>
-                            <tr className="border-b">
-                              <th className="text-left py-2 px-2 md:px-4 text-gray-700 font-medium">
-                                Item
-                              </th>
-                              <th className="text-right py-2 px-2 md:px-4 text-gray-700 font-medium">
-                                Qty
-                              </th>
-                              <th className="text-right py-2 px-2 md:px-4 text-gray-700 font-medium">
-                                Price
-                              </th>
+                            <tr className="border-b border-gray-200">
+                              <th className="text-left py-2 px-3 font-semibold text-gray-700">Item</th>
+                              <th className="text-right py-2 px-3 font-semibold text-gray-700">Qty</th>
+                              <th className="text-right py-2 px-3 font-semibold text-gray-700">Price</th>
                             </tr>
                           </thead>
                           <tbody>
                             {order.items.map((item, index) => (
-                              <tr key={index} className={index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}>
-                                <td className="py-2 px-2 md:px-4">{item.name || 'N/A'}</td>
-                                <td className="text-right py-2 px-2 md:px-4">{item.quantity || 1}</td>
-                                <td className="text-right py-2 px-2 md:px-4">
+                              <tr
+                                key={`${item.item_id}-${index}`}
+                                className={`${
+                                  index % 2 === 0 ? 'bg-gray-50' : ''
+                                } hover:bg-gray-100 transition-colors`}
+                              >
+                                <td className="py-2 px-3 text-gray-600">{item.name || 'N/A'}</td>
+                                <td className="text-right py-2 px-3 text-gray-600">{item.quantity || 1}</td>
+                                <td className="text-right py-2 px-3 text-gray-600">
                                   ₹{((item.price || 0) * (item.quantity || 1)).toFixed(2)}
                                 </td>
                               </tr>
@@ -1016,7 +1037,7 @@ export default function Admin() {
                           </tbody>
                         </table>
                       </div>
-                      <div className="flex justify-between mt-5 font-semibold text-gray-900 text-lg">
+                      <div className="flex justify-between mt-6 text-base font-semibold text-gray-900">
                         <span>Total</span>
                         <span>₹{total.toFixed(2)}</span>
                       </div>
@@ -1088,7 +1109,7 @@ export default function Admin() {
                   </thead>
                   <tbody>
                     {editedItems.map((item, index) => (
-                      <tr key={index}>
+                      <tr key={`${item.item_id}-${index}`}>
                         <td className="py-2">{item.name || 'N/A'}</td>
                         <td className="text-right py-2">
                           <div className="flex items-center justify-end gap-2">
@@ -1286,8 +1307,7 @@ export default function Admin() {
                     Previous
                   </button>
                   <span>
-                    Page {historyFilters.page} of{' '}
-                    {Math.ceil(historyOrders.length / historyFilters.perPage)}
+                    Page {historyFilters.page} of {Math.ceil(historyOrders.length / historyFilters.perPage)}
                   </span>
                   <button
                     className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 disabled:bg-gray-300 disabled:opacity-50"
@@ -1313,28 +1333,26 @@ export default function Admin() {
                 <p className="text-sm text-gray-600 mt-1">
                   {formatToIST(new Date(viewingOrder.created_at))}
                 </p>
-                <p className="text-sm text-gray-600 mt-1">Table {viewingOrder.table_id || 'N/A'}</p>
+                <p className="text-sm text-gray-500 mt-1">Table {viewingOrder.table_id || 'N/A'}</p>
                 <p className="text-sm text-gray-600 mt-1">
                   Payment Method: {viewingOrder.payment_type || 'N/A'}
                 </p>
               </div>
-              <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4">
-                <table className="w-full min-w-[320px] border-collapse">
+              <div className="flex-1 overflow-y-auto px-4 sm:p-6">
+                <table className="w-full">
                   <thead>
                     <tr className="border-b border-gray-200">
-                      <th className="text-left py-2 pr-3 text-sm font-semibold text-gray-700">Item</th>
-                      <th className="text-right py-2 px-3 text-sm font-semibold text-gray-700">Qty</th>
-                      <th className="text-right py-2 pl-3 text-sm font-semibold text-gray-700">Amount</th>
+                      <th className="text-left py-2 px-3 text-sm font-medium text-gray-700">Item</th>
+                      <th className="text-right py-2 px-3 text-sm font-medium text-gray-700">Qty</th>
+                      <th className="text-right py-2 px-3 text-sm font-medium text-gray-700">Amount</th>
                     </tr>
                   </thead>
                   <tbody>
                     {viewingOrder.items.map((item, index) => (
-                      <tr key={index} className={index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}>
-                        <td className="py-2 pr-3 text-sm text-gray-600">{item.name || 'N/A'}</td>
+                      <tr key={`${item.item_id}-${index}`} className={index % 2 === 0 ? 'bg-gray-50' : ''}>
+                        <td className="py-2 px-3 text-sm text-gray-600">{item.name || 'N/A'}</td>
+                        <td className="text-right py-2 px-3 text-sm text-gray-600">{item.quantity || 1}</td>
                         <td className="text-right py-2 px-3 text-sm text-gray-600">
-                          {item.quantity || 1}
-                        </td>
-                        <td className="text-right py-2 pl-3 text-sm text-gray-600">
                           ₹{((item.price || 0) * (item.quantity || 1)).toFixed(2)}
                         </td>
                       </tr>
@@ -1343,7 +1361,7 @@ export default function Admin() {
                 </table>
               </div>
               <div className="p-4 sm:p-6 border-t shrink-0">
-                <div className="flex justify-between items-center mb-4 font-semibold text-gray-900 text-sm sm:text-base">
+                <div className="flex justify-between items-center mb-4 font-semibold text-sm sm:text-base">
                   <span>Total</span>
                   <span>
                     ₹{viewingOrder.items
@@ -1351,7 +1369,7 @@ export default function Admin() {
                       .toFixed(2)}
                   </span>
                 </div>
-                <div className="flex justify-end gap-2 sm:gap-3 mt-2">
+                <div className="flex justify-end gap-2">
                   <button
                     className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600 transition text-sm sm:text-base"
                     onClick={() => setViewingOrder(null)}
@@ -1360,7 +1378,7 @@ export default function Admin() {
                     Close
                   </button>
                   <button
-                    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition flex items-center gap-1 sm:gap-2 text-sm sm:text-base"
+                    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition text-sm sm:text-base flex items-center gap-1"
                     onClick={() => printBill(viewingOrder)}
                     aria-label={`Print invoice for order ${viewingOrder.order_number || viewingOrder.id}`}
                   >
@@ -1375,10 +1393,10 @@ export default function Admin() {
 
         {activeTab === 'Menu Management' && (
           <div>
-            <h2 className="text-2xl font-bold text-gray-800 mb-6">Menu Management</h2>
+            <h2 className="text-2xl font-bold text-gray-900 mb-6">Menu Management</h2>
             <div className="bg-white p-6 rounded-lg shadow-md mb-6">
               <h3 className="text-lg font-semibold mb-4">Add New Item</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div>
                   <label className="block text-sm font-medium mb-1">Name</label>
                   <input
@@ -1423,7 +1441,7 @@ export default function Admin() {
                 </div>
               </div>
               <button
-                className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
+                className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition"
                 onClick={addMenuItem}
                 aria-label="Add menu item"
               >
@@ -1431,79 +1449,86 @@ export default function Admin() {
               </button>
             </div>
             <h3 className="text-lg font-semibold mb-4">Menu Items</h3>
-            <table className="w-full bg-white rounded-lg shadow-md">
-              <thead>
-                <tr className="border-b">
-                  <th className="text-left py-3 px-4">Name</th>
-                  <th className="text-left py-3 px-4">Category</th>
-                  <th className="text-right py-3 px-4">Price</th>
-                  <th className="text-center py-3 px-4">Available</th>
-                  <th className="text-center py-3 px-4">Image</th>
-                  <th className="text-center py-3 px-4">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {menuItems.map((item) => (
-                  <tr key={item.id} className="border-b">
-                    <td className="py-3 px-4">{item.name || 'N/A'}</td>
-                    <td className="py-3 px-4">{item.category || 'N/A'}</td>
-                    <td className="text-right py-3 px-4">₹{(item.price || 0).toFixed(2)}</td>
-                    <td className="text-center py-3 px-4">
-                      {item.is_available ? (
-                        <CheckCircleIcon className="h-5 w-5 text-green-600 mx-auto" />
-                      ) : (
-                        <XCircleIcon className="h-5 w-5 text-red-600 mx-auto" />
-                      )}
-                    </td>
-                    <td className="text-center py-3 px-4">
-                      {item.image_url ? (
-                        <img
-                          src={item.image_url}
-                          alt={item.name || 'Menu item'}
-                          className="h-16 w-16 object-cover rounded-md mx-auto"
-                        />
-                      ) : (
-                        <span className="text-gray-500">No Image</span>
-                      )}
-                    </td>
-                    <td className="text-center py-3 px-4 flex gap-2 justify-center">
-                      <label className="bg-blue-600 text-white px-2 py-1 rounded-md hover:bg-blue-700">
-                        <input
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={(e) => uploadImage(item.id, e.target.files[0])}
-                          aria-label={`Upload image for ${item.name}`}
-                        />
-                        Upload
-                      </label>
-                      <button
-                        className="bg-red-600 text-white px-2 py-1 rounded-md hover:bg-red-700 transition"
-                        onClick={() => deleteImage(item.id, item.image_url)}
-                        disabled={!item.image_url}
-                        aria-label={`Delete image for ${item.name}`}
-                      >
-                        Delete
-                      </button>
-                      <button
-                        className="text-blue-600 hover:text-blue-800"
-                        onClick={() => toggleAvailability(item.id, item.is_available)}
-                        aria-label={`Toggle availability for ${item.name}`}
-                      >
-                        {item.is_available ? 'Disable' : 'Enable'}
-                      </button>
-                      <button
-                        className="text-red-600 hover:text-red-800"
-                        onClick={() => removeMenuItem(item.id)}
-                        aria-label={`Remove ${item.name}`}
-                      >
-                        <TrashIcon className="h-5 w-5" />
-                      </button>
-                    </td>
+            <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+              <table className="w-full table-auto">
+                <thead>
+                  <tr className="bg-gray-50 border-b">
+                    <th className="text-left py-3 px-3 text-sm font-semibold text-gray-700">Name</th>
+                    <th className="text-left py-3 px-3 text-sm font-semibold text-gray-700">Category</th>
+                    <th className="text-right py-3 px-3 text-sm font-semibold text-gray-700">Price</th>
+                    <th className="text-center py-3 px-5 text-sm font-semibold text-gray-700">Available</th>
+                    <th className="text-center py-3 px-5 text-sm font-semibold text-gray-700">Image</th>
+                    <th className="text-center py-3 px-5 text-sm font-semibold text-gray-700">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {menuItems.map((item, index) => (
+                    <tr
+                      key={item.id}
+                      className={`border-b ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-gray-100 transition-colors`}
+                    >
+                      <td className="py-3 px-4 text-sm text-gray-800">{item.name || 'N/A'}</td>
+                      <td className="py-3 px-4 text-sm text-gray-600">{item.category || 'N/A'}</td>
+                      <td className="text-right py-3 px-4 text-sm text-gray-600">
+                        ₹{(item.price || 0).toFixed(2)}
+                      </td>
+                      <td className="text-center py-3 px-5">
+                        {item.is_available ? (
+                          <CheckCircleIcon className="h-4 w-4 text-green-600 mx-auto" />
+                        ) : (
+                          <XCircleIcon className="h-4 w-4 text-red-600 mx-auto" />
+                        )}
+                      </td>
+                      <td className="text-center py-3 px-5">
+                        {item.image_url ? (
+                          <img
+                            src={item.image_url}
+                            alt={item.name || 'Menu item'}
+                            className="h-12 w-12 rounded-md object-cover mx-auto"
+                          />
+                        ) : (
+                          <span className="text-gray-500 text-sm">No Image</span>
+                        )}
+                      </td>
+                      <td className="text-center py-3 px-4 flex items-center justify-center gap-2">
+                        <label className="cursor-pointer">
+                          <UploadIcon className="h-5 w-5 text-blue-600 hover:text-blue-800" />
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => uploadImage(item.id, e.target.files[0])}
+                            aria-label={`Upload image for ${item.name}`}
+                          />
+                        </label>
+                        <button
+                          className="text-red-600 hover:text-red-800 disabled:opacity-50"
+                          onClick={() => deleteImage(item.id, item.image_url)}
+                          disabled={!item.image_url}
+                          aria-label={`Delete image for ${item.name}`}
+                        >
+                          <XMarkIcon className="h-5 w-5" />
+                        </button>
+                        <button
+                          className="text-blue-600 hover:text-blue-800 text-sm"
+                          onClick={() => toggleAvailability(item.id, item.is_available)}
+                          aria-label={`Toggle availability for ${item.name}`}
+                        >
+                          {item.is_available ? 'Disable' : 'Enable'}
+                        </button>
+                        <button
+                          className="text-red-600 hover:text-red-800"
+                          onClick={() => removeMenuItem(item.id)}
+                          aria-label={`Remove ${item.name}`}
+                        >
+                          <TrashIcon className="h-5 w-5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
@@ -1511,7 +1536,7 @@ export default function Admin() {
           <div>
             <h2 className="text-2xl font-bold text-gray-800 mb-6">Analytics</h2>
             {isLoadingAnalytics ? (
-              <p className="text-gray-500 text-center">Loading analytics data...</p>
+              <p className="text-gray-500 text-center">Loading analytics...</p>
             ) : error ? (
               <div className="bg-red-100 text-red-700 p-4 rounded-lg mb-6" role="alert">
                 {error}
@@ -1600,9 +1625,7 @@ export default function Admin() {
                     <StatusFilter
                       label="Status"
                       statuses={exportFilters.statuses}
-                      onChange={(newStatuses) =>
-                        setExportFilters({ ...exportFilters, statuses: newStatuses })
-                      }
+                      onChange={(newStatuses) => setExportFilters({ ...exportFilters, statuses: newStatuses })}
                     />
                   </div>
                   <button
