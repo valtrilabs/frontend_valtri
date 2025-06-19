@@ -92,13 +92,27 @@ export default function Admin() {
   useEffect(() => {
     async function fetchOrders() {
       try {
+        setError(null);
         const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || '';
-        const response = await fetch(`${apiUrl}/api/admin/orders`);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const data = await response.json();
-        setOrders(data || []);
+        const maxRetries = 3;
+        let attempts = 0;
+        while (attempts < maxRetries) {
+          try {
+            const response = await fetch(`${apiUrl}/api/admin/orders`, { cache: 'no-store' });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const data = await response.json();
+            setOrders(data || []);
+            return;
+          } catch (err) {
+            attempts++;
+            if (attempts === maxRetries) {
+              throw new Error(`Failed to fetch orders after ${maxRetries} attempts: ${err.message}`);
+            }
+            await new Promise((resolve) => setTimeout(resolve, 1000 * attempts));
+          }
+        }
       } catch (err) {
-        setError(`Failed to fetch orders: ${err.message}`);
+        setError(err.message);
       }
     }
     if (isLoggedIn && activeTab === 'Pending Orders') fetchOrders();
@@ -113,7 +127,7 @@ export default function Admin() {
         if (newOrder.status === 'pending') {
           try {
             const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || '';
-            const response = await fetch(`${apiUrl}/api/orders/${newOrder.id}`);
+            const response = await fetch(`${apiUrl}/api/orders/${newOrder.id}`, { cache: 'no-store' });
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const orderDetails = await response.json();
             setOrders((prevOrders) => [...prevOrders, orderDetails]);
@@ -133,8 +147,6 @@ export default function Admin() {
     return () => supabase.removeChannel(subscription);
   }, [isLoggedIn, activeTab]);
 
-  const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
   async function fetchAnalytics() {
     setIsLoadingAnalytics(true);
     setError(null);
@@ -151,7 +163,6 @@ export default function Admin() {
 
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || '';
-      // Define date range in IST
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
       const todayEnd = new Date();
@@ -163,9 +174,7 @@ export default function Admin() {
           try {
             const response = await fetch(
               `${apiUrl}/api/admin/analytics/${endpoint}?startDate=${todayStart.toISOString()}&endDate=${todayEnd.toISOString()}`,
-              {
-                headers: { 'Content-Type': 'application/json' },
-              }
+              { headers: { 'Content-Type': 'application/json' }, cache: 'no-store' }
             );
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const data = await response.json();
@@ -180,9 +189,9 @@ export default function Admin() {
           } catch (err) {
             attempts++;
             if (attempts === maxRetries) {
-              setError(`Failed to fetch ${endpoint} data after ${maxRetries} attempts: ${err.message}`);
+              console.error(`Failed to fetch ${endpoint} after ${maxRetries} attempts: ${err.message}`);
             }
-            await delay(1000);
+            await new Promise((resolve) => setTimeout(resolve, 1000 * attempts));
           }
         }
       }
@@ -205,6 +214,8 @@ export default function Admin() {
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || '';
         const now = new Date();
+        const maxRetries = 3;
+
         // Weekly revenue (last 7 days)
         const weekStart = new Date(now);
         weekStart.setDate(now.getDate() - 7);
@@ -217,10 +228,23 @@ export default function Admin() {
           statuses: 'paid',
           aggregate: 'revenue',
         });
-        const weekResponse = await fetch(`${apiUrl}/api/admin/orders/history?${weekParams}`);
-        if (!weekResponse.ok) throw new Error(`HTTP ${weekResponse.status}`);
-        const weekData = await weekResponse.json();
-        setWeeklyRevenue(weekData.totalRevenue || 0);
+        let weekAttempts = 0;
+        let weekData;
+        while (weekAttempts < maxRetries) {
+          try {
+            const response = await fetch(`${apiUrl}/api/admin/orders/history?${weekParams}`, { cache: 'no-store' });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            weekData = await response.json();
+            setWeeklyRevenue(weekData.totalRevenue || 0);
+            break;
+          } catch (err) {
+            weekAttempts++;
+            if (weekAttempts === maxRetries) {
+              setError(`Failed to fetch weekly revenue after ${maxRetries} attempts: ${err.message}`);
+            }
+            await new Promise((resolve) => setTimeout(resolve, 1000 * weekAttempts));
+          }
+        }
 
         // Monthly revenue (last 30 days)
         const monthStart = new Date(now);
@@ -234,10 +258,22 @@ export default function Admin() {
           statuses: 'paid',
           aggregate: 'revenue',
         });
-        const monthResponse = await fetch(`${apiUrl}/api/admin/orders/history?${monthParams}`);
-        if (!monthResponse.ok) throw new Error(`HTTP ${monthResponse.status}`);
-        const monthData = await monthResponse.json();
-        setMonthlyRevenue(monthData.totalRevenue || 0);
+        let monthAttempts = 0;
+        while (monthAttempts < maxRetries) {
+          try {
+            const response = await fetch(`${apiUrl}/api/admin/orders/history?${monthParams}`, { cache: 'no-store' });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const monthData = await response.json();
+            setMonthlyRevenue(monthData.totalRevenue || 0);
+            break;
+          } catch (err) {
+            monthAttempts++;
+            if (monthAttempts === maxRetries) {
+              setError(`Failed to fetch monthly revenue after ${maxRetries} attempts: ${err.message}`);
+            }
+            await new Promise((resolve) => setTimeout(resolve, 1000 * monthAttempts));
+          }
+        }
       } catch (err) {
         setError(`Failed to fetch revenue data: ${err.message}`);
       }
@@ -263,6 +299,7 @@ export default function Admin() {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || '';
       let startDate, endDate;
       const today = new Date();
+      const maxRetries = 3;
       switch (historyFilters.dateRange) {
         case 'today':
           startDate = new Date(today.setHours(0, 0, 0, 0)).toISOString();
@@ -303,10 +340,22 @@ export default function Admin() {
       if (historyFilters.statuses.length) {
         params.append('statuses', historyFilters.statuses.join(','));
       }
-      const response = await fetch(`${apiUrl}/api/admin/orders/history?${params}`);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = await response.json();
-      setHistoryOrders(data || []);
+      let attempts = 0;
+      while (attempts < maxRetries) {
+        try {
+          const response = await fetch(`${apiUrl}/api/admin/orders/history?${params}`, { cache: 'no-store' });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const data = await response.json();
+          setHistoryOrders(data || []);
+          break;
+        } catch (err) {
+          attempts++;
+          if (attempts === maxRetries) {
+            setError(`Failed to fetch order history after ${maxRetries} attempts: ${err.message}`);
+          }
+          await new Promise((resolve) => setTimeout(resolve, 1000 * attempts));
+        }
+      }
     } catch (err) {
       setError(`Failed to fetch order history: ${err.message}`);
     }
@@ -339,18 +388,32 @@ export default function Admin() {
     }
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || '';
-      const response = await fetch(`${apiUrl}/api/orders/${selectedOrderId}/pay`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ payment_type: paymentType }),
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      setOrders((prev) => prev.filter((order) => order.id !== selectedOrderId));
-      setShowPaymentModal(false);
-      setSelectedOrderId(null);
-      setPaymentType('');
+      const maxRetries = 3;
+      let attempts = 0;
+      while (attempts < maxRetries) {
+        try {
+          const response = await fetch(`${apiUrl}/api/orders/${selectedOrderId}/pay`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ payment_type: paymentType }),
+            cache: 'no-store'
+          });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          setOrders((prev) => prev.filter((order) => order.id !== selectedOrderId));
+          setShowPaymentModal(false);
+          setSelectedOrderId(null);
+          setPaymentType('');
+          break;
+        } catch (err) {
+          attempts++;
+          if (attempts === maxRetries) {
+            throw new Error(`Failed to mark order as paid after ${maxRetries} attempts: ${err.message}`);
+          }
+          await new Promise((resolve) => setTimeout(resolve, 1000 * attempts));
+        }
+      }
     } catch (err) {
-      setError(`Failed to mark order as paid: ${err.message}`);
+      setError(err.message);
     }
   };
 
@@ -390,18 +453,32 @@ export default function Admin() {
   const saveOrder = async () => {
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || '';
-      const response = await fetch(`${apiUrl}/api/orders/${editingOrder.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items: editedItems }),
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const updatedOrder = await response.json();
-      setOrders((prev) => prev.map((o) => (o.id === editingOrder.id ? updatedOrder : o)));
-      setEditingOrder(null);
-      setEditedItems([]);
+      const maxRetries = 3;
+      let attempts = 0;
+      while (attempts < maxRetries) {
+        try {
+          const response = await fetch(`${apiUrl}/api/orders/${editingOrder.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ items: editedItems }),
+            cache: 'no-store'
+          });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const updatedOrder = await response.json();
+          setOrders((prev) => prev.map((o) => (o.id === editingOrder.id ? updatedOrder : o)));
+          setEditingOrder(null);
+          setEditedItems([]);
+          break;
+        } catch (err) {
+          attempts++;
+          if (attempts === maxRetries) {
+            throw new Error(`Failed to update order after ${maxRetries} attempts: ${err.message}`);
+          }
+          await new Promise((resolve) => setTimeout(resolve, 1000 * attempts));
+        }
+      }
     } catch (err) {
-      setError(`Failed to update order: ${err.message}`);
+      setError(err.message);
     }
   };
 
@@ -658,59 +735,50 @@ export default function Admin() {
     printWindow.document.close();
   };
 
-  const exportOrders = () => {
-    const startDate = new Date(exportFilters.startDate);
-    startDate.setHours(0, 0, 0, 0);
-    const endDate = new Date(exportFilters.endDate);
-    endDate.setHours(23, 59, 59, 999);
-    const filteredOrders = historyOrders.filter((order) => {
-      const orderDate = new Date(order.created_at);
-      const matchesDate = orderDate >= startDate && orderDate <= endDate;
-      const matchesStatus = exportFilters.statuses.length ? exportFilters.statuses.includes(order.status) : true;
-      return matchesDate && matchesStatus;
-    });
+  const exportOrders = async () => {
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || '';
+      const maxRetries = 3;
+      let attempts = 0;
+      const startDate = new Date(exportFilters.startDate);
+      startDate.setHours(0, 0, 0, 0);
+      const endDate = new Date(exportFilters.endDate);
+      endDate.setHours(23, 59, 59, 999);
+      const params = new URLSearchParams({
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString(),
+        statuses: exportFilters.statuses.join(','),
+      });
 
-    let csv;
-    if (exportType === 'order') {
-      csv = [
-        'Order ID,Date,Time,Table Number,Status,Total Amount,Items,Payment Method',
-        ...filteredOrders.map((order) => {
-          const total = order.items.reduce((sum, item) => sum + (item.price || 0) * (item.quantity || 1), 0);
-          const date = formatToISTDateOnly(new Date(order.created_at));
-          const time = formatToIST(new Date(order.created_at)).split(' ')[1];
-          const items = order.items.map((item) => `${item.name} x${item.quantity || 1}`).join(', ');
-          return `"${order.order_number || order.id}","${date}","${time}","${
-            order.table_id || 'N/A'
-          }","${order.status}","${total.toFixed(2)}","${items.replace(/"/g, '""')}","${order.payment_type || 'N/A'}"`;
-        }),
-      ];
-    } else {
-      csv = [
-        'Order ID,Date,Item Name,Quantity,Unit Price,Total Price,Status,Table Number,Payment Method',
-        ...filteredOrders.flatMap((order) => {
-          const date = formatToISTDateOnly(new Date(order.created_at));
-          return order.items.map((item) => {
-            const totalPrice = ((item.price || 0) * (item.quantity || 1)).toFixed(2);
-            return `"${order.order_number || order.id}","${date}","${item.name || ''}","${
-              item.quantity || 1
-            }","${(item.price || 0).toFixed(2)}","${totalPrice}","${order.status}","${
-              order.table_id || 'N/A'
-            }","${order.payment_type || 'N/A'}"`;
-          });
-        }),
-      ];
+      let exportData;
+      while (attempts < maxRetries) {
+        try {
+          const response = await fetch(`${apiUrl}/api/admin/orders/export?${params}`, { cache: 'no-store' });
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          exportData = await response.text();
+          break;
+        } catch (err) {
+          attempts++;
+          if (attempts === maxRetries) {
+            throw new Error(`Failed to export orders after ${maxRetries} attempts: ${err.message}`);
+          }
+          await new Promise((resolve) => setTimeout(resolve, 1000 * attempts));
+        }
+      }
+
+      const bom = '\uFEFF';
+      const blob = new Blob([bom + exportData], { type: 'text/csv;charset=utf-8' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `orders_${exportType}_${formatToISTDateOnly(new Date())}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(link);
+    } catch (err) {
+      setError(`Failed to export orders: ${err.message}`);
     }
-
-    const bom = '\uFEFF';
-    const blob = new Blob([bom + csv.join('\n')], { type: 'text/csv;charset=utf-8' });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `orders_${exportType}_${formatToISTDateOnly(new Date())}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    window.URL.revokeObjectURL(url);
-    document.body.removeChild(link);
   };
 
   const StatusFilter = ({ statuses, onChange, label }) => (
@@ -750,7 +818,7 @@ export default function Admin() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-100">
         <div className="bg-white p-8 rounded-lg shadow-lg max-w-md w-full">
-          <h1 className="text-2xl font-bold mb-6 text-center">Admin Login</h1>
+          <h1 className="text jamestext-gray-800 mb-6 text-center">Admin Dashboard</h1>
           {error && (
             <p className="text-red-500 mb-4 text-center" role="alert">
               {error}
@@ -876,7 +944,7 @@ export default function Admin() {
                             Edit
                           </button>
                           <button
-                            className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 flex items-center gap-2 whitespace-nowrap"
+                            className="bg-green-600 text-white pxulton-4 py-2 rounded-lg hover:bg-green-700 flex items-center gap-2 whitespace-nowrap"
                             onClick={() => initiateMarkAsPaid(order.id)}
                             aria-label={`Mark order ${order.order_number || order.id} as paid`}
                           >
@@ -1121,6 +1189,27 @@ export default function Admin() {
                   }
                 />
               </div>
+              <div className="mt-4">
+                <label className="block text-sm font-medium mb-1">Export Orders</label>
+                <div className="flex gap-4">
+                  <select
+                    className="border p-2 rounded-md"
+                    value={exportType}
+                    onChange={(e) => setExportType(e.target.value)}
+                    aria-label="Select export type"
+                  >
+                    <option value="order">By Order</option>
+                    <option value="item">By Item</option>
+                  </select>
+                  <button
+                    className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition"
+                    onClick={exportOrders}
+                    aria-label="Export orders"
+                  >
+                    Export
+                  </button>
+                </div>
+              </div>
             </div>
             {historyOrders.length === 0 ? (
               <p className="text-gray-500 text-center">No orders found.</p>
@@ -1165,12 +1254,12 @@ export default function Admin() {
                                 onClick={() => setViewingOrder(order)}
                                 aria-label={`View invoice for order ${order.order_number || order.id}`}
                               >
-                                View
+                                View Invoice
                               </button>
                               <button
                                 className="text-gray-600 hover:text-gray-800"
                                 onClick={() => printBill(order)}
-                                aria-label={`Print invoice for order ${order.order_number || order.id}`}
+                                aria-label={`Print bill for order ${order.order_number || order.id}`}
                               >
                                 <PrinterIcon className="h-5 w-5" />
                               </button>
@@ -1180,9 +1269,9 @@ export default function Admin() {
                       })}
                   </tbody>
                 </table>
-                <div className="flex justify-between items-center mt-4">
+                <div className="flex justify-between mt-4">
                   <button
-                    className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 disabled:bg-gray-300 disabled:opacity-50"
+                    className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:bg-gray-400"
                     onClick={() => setHistoryFilters({ ...historyFilters, page: historyFilters.page - 1 })}
                     disabled={historyFilters.page === 1}
                     aria-label="Previous page"
@@ -1191,12 +1280,14 @@ export default function Admin() {
                   </button>
                   <span>
                     Page {historyFilters.page} of{' '}
-                    {Math.ceil(historyOrders.length / historyFilters.perPage)}
+                    {Math.ceil(historyOrders.length / historyFilters.perPage) || 1}
                   </span>
                   <button
-                    className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 disabled:bg-gray-300 disabled:opacity-50"
+                    className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:bg-gray-400"
                     onClick={() => setHistoryFilters({ ...historyFilters, page: historyFilters.page + 1 })}
-                    disabled={historyFilters.page * historyFilters.perPage >= historyOrders.length}
+                    disabled={
+                      historyFilters.page >= Math.ceil(historyOrders.length / historyFilters.perPage)
+                    }
                     aria-label="Next page"
                   >
                     Next
@@ -1209,69 +1300,51 @@ export default function Admin() {
 
         {viewingOrder && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] mx-2 sm:mx-4 flex flex-col overflow-hidden">
-              <div className="p-4 sm:p-6 border-b shrink-0">
-                <h3 className="text-xl font-bold text-gray-900">
-                  Invoice #{viewingOrder.order_number || viewingOrder.id}
-                </h3>
-                <p className="text-sm text-gray-600 mt-1">
-                  {formatToIST(new Date(viewingOrder.created_at))}
-                </p>
-                <p className="text-sm text-gray-600 mt-1">Table {viewingOrder.table_id || 'N/A'}</p>
-                <p className="text-sm text-gray-600 mt-1">
-                  Payment Method: {viewingOrder.payment_type || 'N/A'}
-                </p>
-              </div>
-              <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4">
-                <table className="w-full min-w-[320px] border-collapse">
-                  <thead>
-                    <tr className="border-b border-gray-200">
-                      <th className="text-left py-2 pr-3 text-sm font-semibold text-gray-700">Item</th>
-                      <th className="text-right py-2 px-3 text-sm font-semibold text-gray-700">Qty</th>
-                      <th className="text-right py-2 pl-3 text-sm font-semibold text-gray-700">Amount</th>
+            <div className="bg-white p-6 rounded-lg max-w-2xl w-full">
+              <h3 className="text-xl font-semibold mb-4">
+                Invoice #{viewingOrder.order_number || viewingOrder.id}
+              </h3>
+              <p className="text-sm text-gray-500 mb-2">
+                Date: {formatToIST(new Date(viewingOrder.created_at))}
+              </p>
+              <p className="text-sm text-gray-500 mb-2">Table: {viewingOrder.table_id || 'N/A'}</p>
+              <p className="text-sm text-gray-500 mb-4">
+                Payment Method: {viewingOrder.payment_type || 'N/A'}
+              </p>
+              <table className="w-full mb-4">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-2">Item</th>
+                    <th className="text-right py-2">Qty</th>
+                    <th className="text-right py-2">Price</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {viewingOrder.items.map((item, index) => (
+                    <tr key={index}>
+                      <td className="py-2">{item.name || 'N/A'}</td>
+                      <td className="text-right py-2">{item.quantity || 1}</td>
+                      <td className="text-right py-2">
+                        ₹{((item.price || 0) * (item.quantity || 1)).toFixed(2)}
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {viewingOrder.items.map((item, index) => (
-                      <tr key={index} className={index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}>
-                        <td className="py-2 pr-3 text-sm text-gray-600">{item.name || 'N/A'}</td>
-                        <td className="text-right py-2 px-3 text-sm text-gray-600">
-                          {item.quantity || 1}
-                        </td>
-                        <td className="text-right py-2 pl-3 text-sm text-gray-600">
-                          ₹{((item.price || 0) * (item.quantity || 1)).toFixed(2)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                  ))}
+                </tbody>
+              </table>
+              <div className="flex justify-between font-semibold text-lg">
+                <span>Total</span>
+                <span>
+                  ₹{viewingOrder.items.reduce((sum, item) => sum + (item.price || 0) * (item.quantity || 1), 0).toFixed(2)}
+                </span>
               </div>
-              <div className="p-4 sm:p-6 border-t shrink-0">
-                <div className="flex justify-between items-center mb-4 font-semibold text-gray-900 text-sm sm:text-base">
-                  <span>Total</span>
-                  <span>
-                    ₹{viewingOrder.items
-                      .reduce((sum, item) => sum + (item.price || 0) * (item.quantity || 1), 0)
-                      .toFixed(2)}
-                  </span>
-                </div>
-                <div className="flex justify-end gap-2 sm:gap-3 mt-2">
-                  <button
-                    className="bg-gray-500 text-white px-4 py-2 rounded-lg hover:bg-gray-600 transition text-sm sm:text-base"
-                    onClick={() => setViewingOrder(null)}
-                    aria-label="Close invoice"
-                  >
-                    Close
-                  </button>
-                  <button
-                    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition flex items-center gap-1 sm:gap-2 text-sm sm:text-base"
-                    onClick={() => printBill(viewingOrder)}
-                    aria-label={`Print invoice for order ${viewingOrder.order_number || viewingOrder.id}`}
-                  >
-                    <PrinterIcon className="h-4 w-4 sm:h-5 sm:w-5" />
-                    Print
-                  </button>
-                </div>
+              <div className="flex justify-end mt-4">
+                <button
+                  className="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 transition"
+                  onClick={() => setViewingOrder(null)}
+                  aria-label="Close invoice"
+                >
+                  Close
+                </button>
               </div>
             </div>
           </div>
@@ -1279,245 +1352,148 @@ export default function Admin() {
 
         {activeTab === 'Menu Management' && (
           <div>
-            <h2 className="text-2xl font-bold text-gray-800 mb-6">Menu Management</h2>
+            <h2 className="text-2xl font-semibold text-gray-800 mb-6">Menu Management</h2>
             <div className="bg-white p-6 rounded-lg shadow-md mb-6">
               <h3 className="text-lg font-semibold mb-4">Add New Item</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Name</label>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <input
+                  type="text"
+                  placeholder="Item Name"
+                  value={newItem.name}
+                  onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
+                  className="border p-2 rounded-md"
+                  aria-label="Item name"
+                />
+                <input
+                  type="text"
+                  placeholder="Category"
+                  value={newItem.category}
+                  onChange={(e) => setNewItem({ ...newItem, category: e.target.value })}
+                  className="border p-2 rounded-md"
+                  aria-label="Category"
+                />
+                <input
+                  type="number"
+                  placeholder="Price"
+                  value={newItem.price}
+                  onChange={(e) => setNewItem({ ...newItem, price: e.target.value })}
+                  className="border p-2 rounded-md"
+                  aria-label="Price"
+                />
+                <label className="flex items-center">
                   <input
-                    type="text"
-                    value={newItem.name}
-                    onChange={(e) => setNewItem({ ...newItem, name: e.target.value })}
-                    className="border p-2 rounded-md w-full"
-                    aria-label="Item name"
+                    type="checkbox"
+                    checked={newItem.is_available}
+                    onChange={(e) => setNewItem({ ...newItem, is_available: e.target.checked })}
+                    className="mr-2"
+                    aria-label="Available"
                   />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Category</label>
-                  <input
-                    type="text"
-                    value={newItem.category}
-                    onChange={(e) => setNewItem({ ...newItem, category: e.target.value })}
-                    className="border p-2 rounded-md w-full"
-                    aria-label="Item category"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Price</label>
-                  <input
-                    type="number"
-                    value={newItem.price}
-                    onChange={(e) => setNewItem({ ...newItem, price: e.target.value })}
-                    className="border p-2 rounded-md w-full"
-                    aria-label="Item price"
-                  />
-                </div>
-                <div className="flex items-center">
-                  <label className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={newItem.is_available}
-                      onChange={(e) => setNewItem({ ...newItem, is_available: e.target.checked })}
-                      className="mr-2"
-                      aria-label="Item availability"
-                    />
-                    Available
-                  </label>
-                </div>
+                  Available
+                </label>
               </div>
               <button
-                className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
+                className="bg-blue-600 text-white px-4 py-2 rounded-md mt-4 hover:bg-blue-700 transition"
                 onClick={addMenuItem}
                 aria-label="Add menu item"
               >
                 Add Item
               </button>
             </div>
-            <h3 className="text-lg font-semibold mb-4">Menu Items</h3>
-            <table className="w-full bg-white rounded-lg shadow-md">
-              <thead>
-                <tr className="border-b">
-                  <th className="text-left py-3 px-4">Name</th>
-                  <th className="text-left py-3 px-4">Category</th>
-                  <th className="text-right py-3 px-4">Price</th>
-                  <th className="text-center py-3 px-4">Available</th>
-                  <th className="text-center py-3 px-4">Image</th>
-                  <th className="text-center py-3 px-4">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {menuItems.map((item) => (
-                  <tr key={item.id} className="border-b">
-                    <td className="py-3 px-4">{item.name || 'N/A'}</td>
-                    <td className="py-3 px-4">{item.category || 'N/A'}</td>
-                    <td className="text-right py-3 px-4">₹{(item.price || 0).toFixed(2)}</td>
-                    <td className="text-center py-3 px-4">
-                      {item.is_available ? (
-                        <CheckCircleIcon className="h-5 w-5 text-green-600 mx-auto" />
-                      ) : (
-                        <XCircleIcon className="h-5 w-5 text-red-600 mx-auto" />
-                      )}
-                    </td>
-                    <td className="text-center py-3 px-4">
-                      {item.image_url ? (
-                        <img
-                          src={item.image_url}
-                          alt={item.name || 'Menu item'}
-                          className="h-16 w-16 object-cover rounded-md mx-auto"
-                        />
-                      ) : (
-                        <span className="text-gray-500">No Image</span>
-                      )}
-                    </td>
-                    <td className="text-center py-3 px-4 flex gap-2 justify-center">
-                      <label className="bg-blue-600 text-white px-2 py-1 rounded-md hover:bg-blue-700">
-                        <input
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={(e) => uploadImage(item.id, e.target.files[0])}
-                          aria-label={`Upload image for ${item.name}`}
-                        />
-                        Upload
-                      </label>
-                      <button
-                        className="bg-red-600 text-white px-2 py-1 rounded-md hover:bg-red-700 transition"
-                        onClick={() => deleteImage(item.id, item.image_url)}
-                        disabled={!item.image_url}
-                        aria-label={`Delete image for ${item.name}`}
-                      >
-                        Delete
-                      </button>
-                      <button
-                        className="text-blue-600 hover:text-blue-800"
-                        onClick={() => toggleAvailability(item.id, item.is_available)}
-                        aria-label={`Toggle availability for ${item.name}`}
-                      >
-                        {item.is_available ? 'Disable' : 'Enable'}
-                      </button>
-                      <button
-                        className="text-red-600 hover:text-red-800"
-                        onClick={() => removeMenuItem(item.id)}
-                        aria-label={`Remove ${item.name}`}
-                      >
-                        <TrashIcon className="h-5 w-5" />
-                      </button>
-                    </td>
+            <div className="bg-white p-6 rounded-lg shadow-md">
+              <h3 className="text-lg font-semibold mb-4">Menu Items</h3>
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-2">Name</th>
+                    <th className="text-left py-2">Category</th>
+                    <th className="text-right py-2">Price</th>
+                    <th className="text-center py-2">Available</th>
+                    <th className="text-center py-2">Image</th>
+                    <th className="text-center py-2">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {menuItems.map((item) => (
+                    <tr key={item.id} className="border-b">
+                      <td className="py-2">{item.name}</td>
+                      <td className="py-2">{item.category || 'N/A'}</td>
+                      <td className="text-right py-2">₹{(item.price || 0).toFixed(2)}</td>
+                      <td className="text-center py-2">
+                        <button
+                          onClick={() => toggleAvailability(item.id, item.is_available)}
+                          className={`p-1 rounded-full ${
+                            item.is_available ? 'bg-green-500' : 'bg-red-500'
+                          }`}
+                          aria-label={`Toggle availability for ${item.name}`}
+                        >
+                          {item.is_available ? (
+                            <CheckCircleIcon className="h-5 w-5 text-white" />
+                          ) : (
+                            <XCircleIcon className="h-5 w-5 text-white" />
+                          )}
+                        </button>
+                      </td>
+                      <td className="text-center py-2">
+                        {item.image_url ? (
+                          <div className="flex items-center justify-center gap-2">
+                            <img src={item.image_url} alt={item.name} className="h-10 w-10 object-cover rounded" />
+                            <button
+                              className="text-red-600 hover:text-red-800"
+                              onClick={() => deleteImage(item.id, item.image_url)}
+                              aria-label={`Delete image for ${item.name}`}
+                            >
+                              <TrashIcon className="h-5 w-5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => uploadImage(item.id, e.target.files[0])}
+                            className="text-sm"
+                            aria-label={`Upload image for ${item.name}`}
+                          />
+                        )}
+                      </td>
+                      <td className="text-center py-2">
+                        <button
+                          className="text-red-600 hover:text-red-800"
+                          onClick={() => removeMenuItem(item.id)}
+                          aria-label={`Remove ${item.name}`}
+                        >
+                          <TrashIcon className="h-5 w-5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
         {activeTab === 'Data Analytics' && (
           <div>
-            <h2 className="text-2xl font-bold text-gray-800 mb-6">Analytics</h2>
+            <h2 className="text-2xl font-semibold text-gray-800 mb-6">Data Analytics</h2>
             {isLoadingAnalytics ? (
-              <p className="text-gray-500 text-center">Loading analytics data...</p>
-            ) : error ? (
-              <div className="bg-red-100 text-red-700 p-4 rounded-lg mb-6" role="alert">
-                {error}
-                <button
-                  className="ml-4 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
-                  onClick={fetchAnalytics}
-                  aria-label="Retry fetching analytics"
-                >
-                  Retry
-                </button>
-              </div>
+              <p className="text-gray-500 text-center">Loading analytics...</p>
             ) : (
-              <>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-                  <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white p-6 rounded-lg shadow-md">
-                    <h3 className="text-lg font-semibold mb-2">Total Orders</h3>
-                    <p className="text-2xl font-bold">{analytics.totalOrders}</p>
-                  </div>
-                  <div className="bg-gradient-to-r from-green-500 to-green-600 text-white p-6 rounded-lg shadow-md">
-                    <h3 className="text-lg font-semibold mb-2">Total Revenue</h3>
-                    <p className="text-2xl font-bold">₹{(analytics.totalRevenue || 0).toFixed(2)}</p>
-                  </div>
-                  <div className="bg-gradient-to-r from-purple-500 to-purple-600 text-white p-6 rounded-lg shadow-md">
-                    <h3 className="text-lg font-semibold mb-2">Most Sold Item</h3>
-                    <p className="text-2xl font-bold">{analytics.mostSoldItem[0]}</p>
-                    <p className="text-sm">{analytics.mostSoldItem[1]} sold</p>
-                  </div>
-                  <div className="bg-gradient-to-r from-orange-500 to-orange-600 text-white p-6 rounded-lg shadow-md">
-                    <h3 className="text-lg font-semibold mb-2">Peak Hour</h3>
-                    <p className="text-2xl font-bold">{analytics.peakHour}</p>
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-                  <div className="bg-gradient-to-r from-teal-500 to-teal-600 text-white p-6 rounded-lg shadow-md">
-                    <h3 className="text-lg font-semibold mb-2">Weekly Revenue</h3>
-                    <p className="text-2xl font-bold">₹{(weeklyRevenue || 0).toFixed(2)}</p>
-                  </div>
-                  <div className="bg-gradient-to-r from-indigo-500 to-indigo-600 text-white p-6 rounded-lg shadow-md">
-                    <h3 className="text-lg font-semibold mb-2">Monthly Revenue</h3>
-                    <p className="text-2xl font-bold">₹{(monthlyRevenue || 0).toFixed(2)}</p>
-                  </div>
-                  <div className="bg-gradient-to-r from-pink-500 to-pink-600 text-white p-6 rounded-lg shadow-md">
-                    <h3 className="text-lg font-semibold mb-2">Average Order Value</h3>
-                    <p className="text-2xl font-bold">₹{(analytics.aov || 0).toFixed(2)}</p>
-                  </div>
-                  <div className="bg-gradient-to-r from-yellow-500 to-yellow-600 text-white p-6 rounded-lg shadow-md">
-                    <h3 className="text-lg font-semibold mb-2">Total Items Sold</h3>
-                    <p className="text-2xl font-bold">{analytics.totalItemsSold}</p>
-                  </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="bg-white p-6 rounded-lg shadow-md">
+                  <h3 className="text-lg font-semibold mb-4">Today&apos;s Overview</h3>
+                  <p>Total Orders: {analytics.totalOrders}</p>
+                  <p>Total Revenue: ₹{analytics.totalRevenue.toFixed(2)}</p>
+                  <p>Most Sold Item: {analytics.mostSoldItem[0]} ({analytics.mostSoldItem[1]})</p>
+                  <p>Peak Hour: {analytics.peakHour}</p>
+                  <p>Average Order Value: ₹{analytics.aov.toFixed(2)}</p>
+                  <p>Total Items Sold: {analytics.totalItemsSold}</p>
                 </div>
                 <div className="bg-white p-6 rounded-lg shadow-md">
-                  <h3 className="text-lg font-semibold mb-4">Export Orders</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Export Type</label>
-                      <select
-                        className="border p-2 w-full rounded-md"
-                        value={exportType}
-                        onChange={(e) => setExportType(e.target.value)}
-                        aria-label="Select export type"
-                      >
-                        <option value="order">Order Summary</option>
-                        <option value="items">Items</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Start Date</label>
-                      <DatePicker
-                        selected={exportFilters.startDate}
-                        onChange={(date) => setExportFilters({ ...exportFilters, startDate: date })}
-                        className="border p-2 rounded-md w-full"
-                        aria-label="Select start date for export"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">End Date</label>
-                      <DatePicker
-                        selected={exportFilters.endDate}
-                        onChange={(date) => setExportFilters({ ...exportFilters, endDate: date })}
-                        className="border p-2 rounded-md w-full"
-                        aria-label="Select end date for export"
-                      />
-                    </div>
-                  </div>
-                  <div className="mt-4">
-                    <StatusFilter
-                      label="Status"
-                      statuses={exportFilters.statuses}
-                      onChange={(newStatuses) =>
-                        setExportFilters({ ...exportFilters, statuses: newStatuses })
-                      }
-                    />
-                  </div>
-                  <button
-                    className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
-                    onClick={exportOrders}
-                    aria-label="Export orders"
-                  >
-                    Export
-                  </button>
+                  <h3 className="text-lg font-semibold mb-4">Revenue Trends</h3>
+                  <p>Weekly Revenue: ₹{weeklyRevenue.toFixed(2)}</p>
+                  <p>Monthly Revenue: ₹{monthlyRevenue.toFixed(2)}</p>
                 </div>
-              </>
+              </div>
             )}
           </div>
         )}
