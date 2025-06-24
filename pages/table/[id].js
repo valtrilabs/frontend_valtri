@@ -16,18 +16,51 @@ export default function Table() {
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [error, setError] = useState(null);
-  const [addedItems, setAddedItems] = useState({}); // Track items showing "Added"
+  const [addedItems, setAddedItems] = useState({});
+  const [isLocationValid, setIsLocationValid] = useState(null);
+  const [locationError, setLocationError] = useState(null);
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
+
+  // Validate location on page load
+  useEffect(() => {
+    if (!id) return;
+    const validateLocation = async () => {
+      try {
+        const position = await new Promise((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 0
+          });
+        });
+        const { latitude, longitude } = position.coords;
+
+        const response = await fetch(`${apiUrl}/api/validate-location`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ latitude, longitude }),
+        });
+        const data = await response.json();
+        if (!response.ok || !data.isValid) {
+          throw new Error(data.error || 'You must be in the cafe to place an order');
+        }
+        setIsLocationValid(true);
+      } catch (err) {
+        setIsLocationValid(false);
+        setLocationError(err.message || 'Failed to validate location. Please ensure you are in the cafe and location services are enabled.');
+      }
+    };
+    validateLocation();
+  }, [id, apiUrl]);
 
   // Check if user has an active pending order
   useEffect(() => {
-    // Clear localStorage on page load to prevent stale data
     localStorage.removeItem('orderId');
     localStorage.removeItem('appendOrder');
 
     async function checkActiveOrder() {
       if (!id) return;
       try {
-        // Check for pending orders for this table
         const { data, error } = await supabase
           .from('orders')
           .select('id, status')
@@ -39,7 +72,7 @@ export default function Table() {
           console.error('Error checking orders:', error.message);
           throw error;
         }
-        console.log('Pending orders found for table', id, ':', data); // Debug log
+        console.log('Pending orders found for table', id, ':', data);
         if (data.length > 0) {
           const order = data[0];
           console.log('Pending order found, redirecting to /order/', order.id);
@@ -52,8 +85,8 @@ export default function Table() {
         console.error('Error checking table orders:', err.message);
       }
     }
-    checkActiveOrder();
-  }, [id, router]);
+    if (isLocationValid) checkActiveOrder();
+  }, [id, router, isLocationValid]);
 
   // Check for append order
   useEffect(() => {
@@ -67,8 +100,7 @@ export default function Table() {
   }, []);
 
   // Fetch menu items
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
-  const { data: menu, error: fetchError, isLoading } = useSWR(`${apiUrl}/api/menu`, fetcher);
+  const { data: menu, error: fetchError, isLoading } = useSWR(isLocationValid ? `${apiUrl}/api/menu` : null, fetcher);
 
   // Unique categories
   const categories = ['All', ...new Set(menu?.map(item => item.category).filter(Boolean))];
@@ -81,14 +113,17 @@ export default function Table() {
     if (fetchError) {
       setError('Failed to load menu. Please try again.');
     }
-  }, [fetchError]);
+    if (locationError) {
+      setError(locationError);
+    }
+  }, [fetchError, locationError]);
 
   // Add to cart with text flash
   const addToCart = (item) => {
     setAddedItems(prev => ({ ...prev, [item.id]: true }));
     setTimeout(() => {
       setAddedItems(prev => ({ ...prev, [item.id]: false }));
-    }, 1000); // Show "Added" for 1 second
+    }, 1000);
     setCart(prevCart => {
       const existingItem = prevCart.find(cartItem => cartItem.item_id === item.id);
       if (existingItem) {
@@ -119,12 +154,21 @@ export default function Table() {
     if (cart.length === 0) return alert('Cart is empty');
     try {
       setError(null);
+      const position = await new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 0
+        });
+      });
+      const { latitude, longitude } = position.coords;
+
       console.log('PlaceOrder - API URL:', apiUrl);
-      console.log('PlaceOrder - Payload:', JSON.stringify({ table_id: parseInt(id), items: cart }));
+      console.log('PlaceOrder - Payload:', JSON.stringify({ table_id: parseInt(id), items: cart, latitude, longitude }));
       const response = await fetch(`${apiUrl}/api/orders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ table_id: parseInt(id), items: cart }),
+        body: JSON.stringify({ table_id: parseInt(id), items: cart, latitude, longitude }),
         signal: AbortSignal.timeout(30000),
       });
       console.log('PlaceOrder - Response status:', response.status);
@@ -138,7 +182,7 @@ export default function Table() {
       router.replace(`/order/${order.id}`);
     } catch (err) {
       console.error('PlaceOrder error:', err.message);
-      setError(`Failed to place order: ${err.message}`);
+      setError(err.message || `Failed to place order: ${err.message}`);
     }
   };
 
@@ -178,6 +222,16 @@ export default function Table() {
     setIsCartOpen(prev => !prev);
   };
 
+  if (isLocationValid === null) return <div className="text-center mt-10" role="status">Checking location...</div>;
+  if (isLocationValid === false) return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-100">
+      <div className="text-center">
+        <h1 className="text-2xl font-bold">Location Error</h1>
+        <p className="mt-4">{error || 'Please ensure you are in the cafe and location services are enabled.'}</p>
+        <p className="mt-2">Try refreshing the page or contact the waiter for assistance.</p>
+      </div>
+    </div>
+  );
   if (isLoading) return <div className="text-center mt-10" role="status">Loading menu...</div>;
   if (error) return <div className="text-center mt-10 text-red-500" role="alert">{error}</div>;
 
