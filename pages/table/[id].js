@@ -226,7 +226,7 @@ export default function Table() {
   if (isLocationValid === false) return (
     <div className="min-h-screen flex items-center justify-center bg-gray-100">
       <div className="text-center">
-        <h1 className="text-2xl font-bold">Location Error</h1>
+        <h1 className="text-2xl font-bold">Location is required to check you are inside the cafe</h1>
         <p className="mt-4">{error || 'Please ensure you are in the cafe and location services are enabled.'}</p>
         <p className="mt-2">You need to allow location to place the order from QR code. Please clear your history, scan the QR code again and Allow location permission or contact the waiter for Manual Order.</p>
       </div>
