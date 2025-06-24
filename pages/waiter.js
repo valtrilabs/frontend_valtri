@@ -109,7 +109,10 @@ export default function Waiter() {
         setError(null);
         const response = await fetch(`${apiUrl}/api/orders`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            'X-Waiter-Auth': 'true'
+          },
           body: JSON.stringify({
             table_id: parseInt(tableNumber),
             items: cart,
@@ -185,7 +188,10 @@ export default function Waiter() {
         setError(null);
         const response = await fetch(`${apiUrl}/api/orders/${editingOrder.orderId}`, {
           method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            'X-Waiter-Auth': 'true'
+          },
           body: JSON.stringify({
             items: cart,
             notes: orderNote || null,
