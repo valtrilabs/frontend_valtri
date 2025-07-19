@@ -141,16 +141,26 @@ export default function Admin() {
     return format(istDate, 'dd/MM/yyyy');
   };
 
-  useEffect(() => {
+  // useEffect(() => {
+  //   const checkSession = async () => {
+  //     const {
+  //       data: { session },
+  //     } = await supabase.auth.getSession();
+  //     if (session) {
+  //       setIsLoggedIn(true);
+  //     } else {
+  //       router.push('/admin/login');
+  //     }
+  //   };
+  //   checkSession();
+  // }, [router]);
+
+    useEffect(() => {
     const checkSession = async () => {
       const {
         data: { session },
       } = await supabase.auth.getSession();
-      if (session) {
-        setIsLoggedIn(true);
-      } else {
-        router.push('/admin/login');
-      }
+      setIsLoggedIn(!!session); // Set isLoggedIn based on session existence
     };
     checkSession();
   }, [router]);
