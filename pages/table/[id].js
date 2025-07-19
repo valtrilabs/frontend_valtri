@@ -1,36 +1,11 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import useSWR from 'swr';
 import { supabase } from '../../lib/supabase';
 import BottomCart from '../../components/BottomCart';
-import { CakeIcon, ShoppingCartIcon, ChevronLeftIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
+import { CakeIcon, ShoppingCartIcon } from '@heroicons/react/24/outline';
 
 const fetcher = (url) => fetch(url).then(res => res.json());
-
-function ErrorBoundary({ children }) {
-  const [hasError, setHasError] = useState(false);
-
-  useEffect(() => {
-    const handleError = (error) => {
-      console.error('ErrorBoundary caught:', error);
-      setHasError(true);
-    };
-    window.addEventListener('error', handleError);
-    return () => window.removeEventListener('error', handleError);
-  }, []);
-
-  if (hasError) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-100" role="alert">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-red-600">Something went wrong</h1>
-          <p className="mt-4">Please refresh the page or contact support.</p>
-        </div>
-      </div>
-    );
-  }
-  return children;
-}
 
 export default function Table() {
   const router = useRouter();
@@ -44,11 +19,6 @@ export default function Table() {
   const [addedItems, setAddedItems] = useState({});
   const [isLocationValid, setIsLocationValid] = useState(null);
   const [locationError, setLocationError] = useState(null);
-  const [showConfirm, setShowConfirm] = useState(false);
-  const [confirmAction, setConfirmAction] = useState(null);
-  const [sliderRef, setSliderRef] = useState(null);
-  const [isScrolled, setIsScrolled] = useState(false);
-  const confirmButtonRef = useRef(null);
   const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
 
   // Validate location on page load
@@ -60,10 +30,11 @@ export default function Table() {
           navigator.geolocation.getCurrentPosition(resolve, reject, {
             enableHighAccuracy: true,
             timeout: 10000,
-            maximumAge: 0,
+            maximumAge: 0
           });
         });
         const { latitude, longitude } = position.coords;
+
         const response = await fetch(`${apiUrl}/api/validate-location`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -88,7 +59,7 @@ export default function Table() {
     localStorage.removeItem('appendOrder');
 
     async function checkActiveOrder() {
-      if (!id || !isLocationValid) return;
+      if (!id) return;
       try {
         const { data, error } = await supabase
           .from('orders')
@@ -101,13 +72,17 @@ export default function Table() {
           console.error('Error checking orders:', error.message);
           throw error;
         }
+        console.log('Pending orders found for table', id, ':', data);
         if (data.length > 0) {
-          localStorage.setItem('orderId', data[0].id);
-          router.replace(`/order/${data[0].id}`);
+          const order = data[0];
+          console.log('Pending order found, redirecting to /order/', order.id);
+          localStorage.setItem('orderId', order.id);
+          router.replace(`/order/${order.id}`);
+        } else {
+          console.log('No pending orders found for table', id, ', allowing menu access');
         }
       } catch (err) {
-        setError('Failed to check active orders. Please try again.');
-        setTimeout(() => setError(null), 5000);
+        console.error('Error checking table orders:', err.message);
       }
     }
     if (isLocationValid) checkActiveOrder();
@@ -127,6 +102,12 @@ export default function Table() {
   // Fetch menu items
   const { data: menu, error: fetchError, isLoading } = useSWR(isLocationValid ? `${apiUrl}/api/menu` : null, fetcher);
 
+  // Unique categories
+  const categories = ['All', ...new Set(menu?.map(item => item.category).filter(Boolean))];
+
+  // Filtered menu
+  const filteredMenu = selectedCategory === 'All' ? menu : menu?.filter(item => item.category === selectedCategory);
+
   // Handle errors
   useEffect(() => {
     if (fetchError) {
@@ -137,34 +118,8 @@ export default function Table() {
     }
   }, [fetchError, locationError]);
 
-  // Track slider scroll
-  useEffect(() => {
-    const handleScroll = () => {
-      if (sliderRef) {
-        setIsScrolled(sliderRef.scrollLeft > 0);
-      }
-    };
-    sliderRef?.addEventListener('scroll', handleScroll);
-    return () => sliderRef?.removeEventListener('scroll', handleScroll);
-  }, [sliderRef]);
-
-  // Focus on confirm button when modal opens
-  useEffect(() => {
-    if (showConfirm && confirmButtonRef.current) {
-      confirmButtonRef.current.focus();
-    }
-  }, [showConfirm]);
-
-  // Memoized categories and filtered menu
-  const categories = useMemo(() => ['All', ...new Set(menu?.map(item => item.category).filter(Boolean))], [menu]);
-  const filteredMenu = useMemo(() =>
-    menu ? menu.filter(item => selectedCategory === 'All' || item.category === selectedCategory) : [],
-    [menu, selectedCategory]
-  );
-
-  // Add to cart
+  // Add to cart with text flash
   const addToCart = (item) => {
-    const wasEmpty = cart.length === 0;
     setAddedItems(prev => ({ ...prev, [item.id]: true }));
     setTimeout(() => {
       setAddedItems(prev => ({ ...prev, [item.id]: false }));
@@ -190,43 +145,33 @@ export default function Table() {
         },
       ];
     });
-    if (wasEmpty) {
-      setIsCartOpen(true);
-      setError('Item added to cart!');
-      setTimeout(() => setError(null), 3000);
-    }
-    console.log('Analytics - Item added:', {
-      item_id: item.id,
-      name: item.name,
-      timestamp: new Date().toISOString(),
-      table_id: id,
-    });
+    setIsCartOpen(true);
+    console.log('Analytics - Item added:', { item_id: item.id, name: item.name, timestamp: new Date().toISOString() });
   };
 
   // Place new order
   const placeOrder = async () => {
-    if (cart.length === 0) {
-      setError('Your cart is empty. Add items to place an order.');
-      setShowConfirm(false);
-      setTimeout(() => setError(null), 5000);
-      return;
-    }
+    if (cart.length === 0) return alert('Cart is empty');
     try {
       setError(null);
       const position = await new Promise((resolve, reject) => {
         navigator.geolocation.getCurrentPosition(resolve, reject, {
           enableHighAccuracy: true,
           timeout: 10000,
-          maximumAge: 0,
+          maximumAge: 0
         });
       });
       const { latitude, longitude } = position.coords;
+
+      console.log('PlaceOrder - API URL:', apiUrl);
+      console.log('PlaceOrder - Payload:', JSON.stringify({ table_id: parseInt(id), items: cart, latitude, longitude }));
       const response = await fetch(`${apiUrl}/api/orders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ table_id: parseInt(id), items: cart, latitude, longitude }),
         signal: AbortSignal.timeout(30000),
       });
+      console.log('PlaceOrder - Response status:', response.status);
       const order = await response.json();
       if (!response.ok || !order.id) {
         throw new Error(order.error || `HTTP ${response.status}`);
@@ -234,32 +179,27 @@ export default function Table() {
       localStorage.setItem('orderId', order.id);
       setCart([]);
       setIsCartOpen(false);
-      setShowConfirm(false);
       router.replace(`/order/${order.id}`);
     } catch (err) {
       console.error('PlaceOrder error:', err.message);
-      setError(`Failed to place order: ${err.message}`);
-      setShowConfirm(false);
-      setTimeout(() => setError(null), 5000);
+      setError(err.message || `Failed to place order: ${err.message}`);
     }
   };
 
   // Update existing order
   const updateOrder = async () => {
-    if (cart.length === 0) {
-      setError('Your cart is empty. Add items to update the order.');
-      setShowConfirm(false);
-      setTimeout(() => setError(null), 5000);
-      return;
-    }
+    if (cart.length === 0) return alert('Cart is empty');
     try {
       setError(null);
+      console.log('UpdateOrder - API URL:', `${apiUrl}/api/orders/${appendOrderId}`);
+      console.log('UpdateOrder - Payload:', JSON.stringify({ items: cart }));
       const response = await fetch(`${apiUrl}/api/orders/${appendOrderId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ items: cart }),
         signal: AbortSignal.timeout(30000),
       });
+      console.log('UpdateOrder - Response status:', response.status);
       const order = await response.json();
       if (!response.ok || !order.id) {
         throw new Error(order.error || `HTTP ${response.status}`);
@@ -270,34 +210,16 @@ export default function Table() {
       localStorage.setItem('orderId', order.id);
       setCart([]);
       setIsCartOpen(false);
-      setShowConfirm(false);
       router.replace(`/order/${order.id}`);
     } catch (err) {
       console.error('UpdateOrder error:', err.message);
       setError(`Failed to update order: ${err.message}`);
-      setShowConfirm(false);
-      setTimeout(() => setError(null), 5000);
     }
-  };
-
-  // Handle confirmation
-  const handleConfirm = (action) => {
-    setConfirmAction(() => action);
-    setShowConfirm(true);
-    setIsCartOpen(false);
   };
 
   // Toggle cart visibility
   const toggleCart = () => {
     setIsCartOpen(prev => !prev);
-  };
-
-  // Scroll slider
-  const scrollLeft = () => {
-    if (sliderRef) sliderRef.scrollBy({ left: -100, behavior: 'smooth' });
-  };
-  const scrollRight = () => {
-    if (sliderRef) sliderRef.scrollBy({ left: 100, behavior: 'smooth' });
   };
 
   if (isLocationValid === null) return <div className="text-center mt-10" role="status">Checking location...</div>;
@@ -311,242 +233,102 @@ export default function Table() {
     </div>
   );
   if (isLoading) return <div className="text-center mt-10" role="status">Loading menu...</div>;
+  if (error) return <div className="text-center mt-10 text-red-500" role="alert">{error}</div>;
 
   return (
-    <ErrorBoundary>
-      <div className="min-h-screen bg-gray-50 p-4 relative">
-        {/* Toast Notification */}
-        {error && (
-          <div
-            className={`fixed top-4 right-4 p-4 rounded-lg shadow-lg z-[110] flex items-center gap-2 animate-fade-in ${
-              error.includes('added') ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-800 font-semibold'
-            }`}
-            role="alert"
-          >
-            <p>{error}</p>
-            <button
-              className="text-sm font-medium hover:underline"
-              onClick={() => setError(null)}
-              aria-label="Dismiss notification"
-            >
-              ✕
-            </button>
-          </div>
-        )}
-
-        {/* Confirmation Dialog */}
-        {showConfirm && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[100]" role="dialog" aria-modal="true">
-            <div className="bg-white p-6 rounded-lg shadow-lg max-w-sm w-full">
-              <h2 className="text-lg font-semibold text-gray-800 mb-4">
-                {isAppending ? 'Confirm Order Changes' : 'Confirm Order'}
-              </h2>
-              <p className="text-gray-700 mb-6">
-                {isAppending
-                  ? `Save changes to order for Table ${id} with ${cart.length} items?`
-                  : `Place order for Table ${id} with ${cart.length} items for ₹${cart
-                      .reduce((sum, item) => sum + item.price * (item.quantity || 1), 0)
-                      .toFixed(2)}?`}
-              </p>
-              <div className="flex gap-4">
-                <button
-                  className="flex-1 bg-gray-300 text-gray-800 py-2 rounded-lg hover:bg-gray-400 transition-colors"
-                  onClick={() => {
-                    setShowConfirm(false);
-                    setIsCartOpen(true);
-                  }}
-                  aria-label="Cancel order action"
-                >
-                  Cancel
-                </button>
-                <button
-                  ref={confirmButtonRef}
-                  className="flex-1 bg-blue-500 text-white py-2 rounded-lg hover:bg-blue-600 transition-colors"
-                  onClick={confirmAction}
-                  aria-label={isAppending ? 'Confirm save order changes' : 'Confirm place order'}
-                >
-                  Confirm
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Top-Right Cart Icon */}
+    <div className="min-h-screen bg-gray-50 p-4 relative">
+      {/* Top-Right Cart Icon */}
+      {cart.length > 0 && (
         <button
-          className={`fixed top-4 right-4 text-white p-3 rounded-full shadow-lg z-[90] transition-colors ${
-            cart.length > 0 ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-300 hover:bg-gray-400'
-          }`}
+          className="fixed top-4 right-4 bg-blue-500 text-white p-2 rounded-full shadow-lg hover:bg-blue-600 z-50"
           onClick={toggleCart}
-          aria-label={`View cart with ${cart.reduce((sum, item) => sum + (item.quantity || 1), 0)} items`}
-          title="View cart"
+          aria-label="Toggle cart"
         >
           <ShoppingCartIcon className="h-6 w-6" />
-          {cart.length > 0 && (
-            <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
-              {cart.reduce((sum, item) => sum + (item.quantity || 1), 0)}
-            </span>
-          )}
+          <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+            {cart.reduce((sum, item) => sum + (item.quantity || 1), 0)}
+          </span>
         </button>
+      )}
 
-        {/* Welcome Message */}
-        <div className="flex items-center justify-center gap-2 mb-6">
-          <CakeIcon className="h-6 w-6 text-blue-500" aria-hidden="true" />
-          <h1 className="text-2xl font-bold text-gray-800" aria-label="Welcome to Valtri Labs Cafe">
-            Welcome to Valtri Labs Cafe
-          </h1>
-          <CakeIcon className="h-6 w-6 text-blue-500" aria-hidden="true" />
-        </div>
-
-        {/* Category Filters */}
-        <div className="mb-6 relative max-w-2xl mx-auto">
-          <div
-            className={`flex overflow-x-auto space-x-2 pb-2 -mx-4 px-4 scrollbar-hide ${
-              isScrolled ? 'bg-gradient-to-l from-gray-200 to-transparent' : 'bg-gradient-to-r from-transparent to-gray-200'
-            }`}
-            ref={setSliderRef}
-            role="tablist"
-            aria-label="Menu categories"
-          >
-            {categories.map((category, index) => (
-              <button
-                key={category}
-                className={`flex-shrink-0 px-4 py-2 rounded-lg text-sm font-semibold transition-transform duration-200 ${
-                  selectedCategory === category
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                } ${index === 0 ? 'animate-bounce-once' : ''}`}
-                onClick={() => setSelectedCategory(category)}
-                role="tab"
-                aria-selected={selectedCategory === category}
-                aria-controls="menu-items"
-                style={{ transform: selectedCategory === category ? 'scale(1.05)' : 'scale(1)' }}
-              >
-                {category}
-              </button>
-            ))}
-          </div>
-          <button
-            className="hidden sm:block absolute left-0 top-1/2 -translate-y-1/2 bg-gray-200 text-gray-700 p-2 rounded-full hover:bg-gray-300"
-            onClick={scrollLeft}
-            aria-label="Scroll categories left"
-          >
-            <ChevronLeftIcon className="h-5 w-5" />
-          </button>
-          <button
-            className="hidden sm:block absolute right-0 top-1/2 -translate-y-1/2 bg-gray-200 text-gray-700 p-2 rounded-full hover:bg-gray-300"
-            onClick={scrollRight}
-            aria-label="Scroll categories right"
-          >
-            <ChevronRightIcon className="h-5 w-5" />
-          </button>
-          <p className="text-xs text-gray-500 mt-1 text-center animate-fade-in" id="slider-hint">
-            Scroll for more categories
-          </p>
-        </div>
-
-        {/* Menu Items Grid */}
-        <div id="menu-items" className="grid grid-cols-2 md:grid-cols-3 gap-3 max-w-2xl mx-auto" role="region" aria-live="polite">
-          {filteredMenu?.length === 0 ? (
-            <p className="col-span-full text-center text-gray-500">No items in this category.</p>
-          ) : (
-            filteredMenu.map(item => {
-              const cartItem = cart.find(cartItem => cartItem.item_id === item.id);
-              const quantity = cartItem ? cartItem.quantity || 1 : 0;
-              return (
-                <div
-                  key={item.id}
-                  className="bg-white p-3 rounded-lg shadow-md hover:shadow-lg transition-shadow duration-300 flex flex-col justify-between min-h-[280px]"
-                >
-                  <div>
-                    <img
-                      src={item.image_url || 'https://images.unsplash.com/photo-1550547660-d9450f859349'}
-                      alt={item.name}
-                      className="w-full h-28 object-cover rounded-md mb-2"
-                    />
-                    <h2
-                      className="font-semibold text-base text-gray-800 line-clamp-2 mb-2"
-                      title={item.name}
-                    >
-                      {item.name}
-                    </h2>
-                    <p className="text-sm text-gray-600 block mb-0.5">{item.category}</p>
-                    <p className="text-sm font-medium text-gray-800">₹{item.price.toFixed(2)}</p>
-                  </div>
-                  <div className="relative mt-auto">
-                    <button
-                      className={`w-full py-2 rounded-lg text-white text-sm transition-all duration-300 ${
-                        quantity > 0 ? 'bg-blue-600 hover:bg-blue-700' : 'bg-green-500 hover:bg-green-600'
-                      }`}
-                      onClick={() => addToCart(item)}
-                      aria-label={quantity > 0 ? `${item.name} added to cart` : `Add ${item.name} to cart`}
-                    >
-                      <span className={quantity > 0 ? 'flex items-center justify-center gap-1' : ''}>
-                        {quantity > 0 ? (
-                          <>
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                            </svg>
-                            Added
-                          </>
-                        ) : (
-                          'Add to Cart'
-                        )}
-                      </span>
-                    </button>
-                    {quantity > 0 && (
-                      <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
-                        x{quantity}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-
-        {/* Bottom Cart */}
-        <BottomCart
-          cart={cart}
-          setCart={setCart}
-          onPlaceOrder={() => handleConfirm(isAppending ? updateOrder : placeOrder)}
-          onClose={() => setIsCartOpen(false)}
-          isOpen={isCartOpen}
-        />
-
-        {/* Custom Styles */}
-        <style jsx>{`
-          @keyframes fade-in {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-          }
-          .animate-fade-in {
-            animation: fade-in 0.5s ease-in-out;
-            animation-fill-mode: forwards;
-          }
-          @keyframes bounce-once {
-            0% { transform: translateY(0); }
-            50% { transform: translateY(-5px); }
-            100% { transform: translateY(0); }
-          }
-          .animate-bounce-once {
-            animation: bounce-once 0.5s ease-in-out;
-          }
-          .scrollbar-hide::-webkit-scrollbar {
-            display: none;
-          }
-          .scrollbar-hide {
-            -ms-overflow-style: none;
-            scrollbar-width: none;
-            -webkit-overflow-scrolling: touch;
-          }
-          #slider-hint {
-            opacity: ${isScrolled ? '0' : '1'};
-            transition: opacity 0.3s ease;
-          }
-        `}</style>
+      {/* Welcome Message */}
+      <div className="flex items-center justify-center gap-2 mb-6">
+        <CakeIcon className="h-6 w-6 text-blue-500" />
+        <h1 className="text-2xl font-bold text-gray-800" aria-label="Welcome to Gsaheb Cafe">
+          Welcome to Valtri Labs Cafe
+        </h1>
+        <CakeIcon className="h-6 w-6 text-blue-500" />
       </div>
-    </ErrorBoundary>
+
+      {/* Category Filters */}
+      <div className="mb-6 overflow-x-auto whitespace-nowrap pb-2" role="tablist" aria-label="Menu categories">
+        <div className="flex gap-2">
+          {categories.map(category => (
+            <button
+              key={category}
+              className={`px-4 py-2 rounded-lg text-sm font-medium ${
+                selectedCategory === category
+                  ? 'bg-blue-500 text-white'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+              onClick={() => setSelectedCategory(category)}
+              role="tab"
+              aria-selected={selectedCategory === category}
+              aria-controls="menu-items"
+            >
+              {category}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Menu Items Grid */}
+      <div
+        id="menu-items"
+        className="grid grid-cols-2 md:grid-cols-3 gap-4"
+        role="region"
+        aria-live="polite"
+      >
+        {filteredMenu?.length === 0 ? (
+          <p className="col-span-full text-center text-gray-500">No items in this category.</p>
+        ) : (
+          filteredMenu.map(item => (
+            <div
+              key={item.id}
+              className="bg-white p-4 rounded-lg shadow-md hover:shadow-lg transition-shadow"
+            >
+              <img
+                src={item.image_url || 'https://images.unsplash.com/photo-1550547660-d9450f859349'}
+                alt={item.name}
+                className="w-full h-32 object-cover rounded-md mb-2"
+              />
+              <h2 className="font-semibold text-lg">{item.name}</h2>
+              <p className="text-sm text-gray-500">{item.category}</p>
+              <p className="text-sm font-medium">₹{item.price.toFixed(2)}</p>
+              <button
+                className={`mt-2 w-full py-2 rounded-lg text-white transition-colors duration-300 ${
+                  addedItems[item.id]
+                    ? 'bg-blue-500 hover:bg-blue-600'
+                    : 'bg-green-500 hover:bg-green-600'
+                }`}
+                onClick={() => addToCart(item)}
+                aria-label={addedItems[item.id] ? `${item.name} added to cart` : `Add ${item.name} to cart`}
+              >
+                {addedItems[item.id] ? 'Added' : 'Add to Cart'}
+              </button>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Bottom Cart */}
+      <BottomCart
+        cart={cart}
+        setCart={setCart}
+        onPlaceOrder={isAppending ? updateOrder : placeOrder}
+        onClose={() => setIsCartOpen(false)}
+        isOpen={isCartOpen}
+      />
+    </div>
   );
 }
