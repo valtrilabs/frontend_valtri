@@ -141,115 +141,20 @@ export default function Admin() {
     return format(istDate, 'dd/MM/yyyy');
   };
 
-  // useEffect(() => {
-  //   const checkSession = async () => {
-  //     const {
-  //       data: { session },
-  //     } = await supabase.auth.getSession();
-  //     if (session) {
-  //       setIsLoggedIn(true);
-  //     } else {
-  //       router.push('/admin/login');
-  //     }
-  //   };
-  //   checkSession();
-  // }, [router]);
-
-  // useEffect(() => {
-  //   const fetchOrders = async () => {
-  //     try {
-  //       setError(null);
-  //       const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || '';
-  //       const maxRetries = 3;
-  //       let attempts = 0;
-  //       while (attempts < maxRetries) {
-  //         try {
-  //           const response = await fetch(`${apiUrl}/api/admin/orders`, { cache: 'no-store' });
-  //           if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  //           const data = await response.json();
-  //           const sortedOrders = (data || []).sort(
-  //             (a, b) => new Date(b.created_at) - new Date(a.created_at)
-  //           );
-  //           setOrders(sortedOrders);
-  //           break;
-  //         } catch (err) {
-  //           attempts += 1;
-  //           if (attempts === maxRetries) {
-  //             setError(`Failed to fetch orders after ${maxRetries} attempts: ${err.message}`);
-  //             break;
-  //           }
-  //           await new Promise((resolve) => setTimeout(resolve, 1000 * attempts));
-  //         }
-  //       }
-  //     } catch (err) {
-  //       setError(`Failed to fetch orders: ${err.message}`);
-  //     }
-  //   };
-  //   if (isLoggedIn && activeTab === 'Pending Orders') fetchOrders();
-  // }, [isLoggedIn, activeTab]);
-
-  // useEffect(() => {
-  //   if (!isLoggedIn || activeTab !== 'Pending Orders') return undefined;
-  //   const subscription = supabase
-  //     .channel('pending-orders-channel')
-  //     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, async (payload) => {
-  //       const newOrder = payload.new;
-  //       if (newOrder.status === 'pending') {
-  //         try {
-  //           const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || '';
-  //           const maxRetries = 3;
-  //           let attempts = 0;
-  //           while (attempts < maxRetries) {
-  //             try {
-  //               const response = await fetch(`${apiUrl}/api/orders/${newOrder.id}`, { cache: 'no-store' });
-  //               if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  //               const orderDetails = await response.json();
-  //               setOrders((prevOrders) => {
-  //                 const updatedOrders = [orderDetails, ...prevOrders];
-  //                 return updatedOrders.sort(
-  //                   (a, b) => new Date(b.created_at) - new Date(a.created_at)
-  //                 );
-  //               });
-  //               break;
-  //             } catch (err) {
-  //               attempts += 1;
-  //               if (attempts === maxRetries) {
-  //                 setError(`Failed to fetch new order after ${maxRetries} attempts: ${err.message}`);
-  //                 break;
-  //               }
-  //               await new Promise((resolve) => setTimeout(resolve, 1000 * attempts));
-  //             }
-  //           }
-  //         } catch (err) {
-  //           setError(`Failed to fetch new order: ${err.message}`);
-  //         }
-  //       }
-  //     })
-  //     .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, (payload) => {
-  //       const updatedOrder = payload.new;
-  //       if (updatedOrder.status !== 'pending') {
-  //         setOrders((prevOrders) => prevOrders.filter((order) => order.id !== updatedOrder.id));
-  //       }
-  //     })
-  //     .subscribe();
-
-  //   return () => {
-  //     supabase.removeChannel(subscription);
-  //   };
-  // }, [isLoggedIn, activeTab]);
-
-  // 🔐 Check Supabase auth session
   useEffect(() => {
     const checkSession = async () => {
       const {
         data: { session },
       } = await supabase.auth.getSession();
-      setIsLoggedIn(!!session);
+      if (session) {
+        setIsLoggedIn(true);
+      } else {
+        router.push('/admin/login');
+      }
     };
     checkSession();
-  }, []);
+  }, [router]);
 
-  // 📦 Fetch orders on tab or login change
   useEffect(() => {
     const fetchOrders = async () => {
       try {
@@ -268,28 +173,23 @@ export default function Admin() {
             setOrders(sortedOrders);
             break;
           } catch (err) {
-            attempts++;
+            attempts += 1;
             if (attempts === maxRetries) {
               setError(`Failed to fetch orders after ${maxRetries} attempts: ${err.message}`);
-            } else {
-              await new Promise((resolve) => setTimeout(resolve, 1000 * attempts));
+              break;
             }
+            await new Promise((resolve) => setTimeout(resolve, 1000 * attempts));
           }
         }
       } catch (err) {
         setError(`Failed to fetch orders: ${err.message}`);
       }
     };
-
-    if (isLoggedIn && activeTab === 'Pending Orders') {
-      fetchOrders();
-    }
+    if (isLoggedIn && activeTab === 'Pending Orders') fetchOrders();
   }, [isLoggedIn, activeTab]);
 
-  // 🔄 Real-time updates from Supabase
   useEffect(() => {
-    if (!isLoggedIn || activeTab !== 'Pending Orders') return;
-
+    if (!isLoggedIn || activeTab !== 'Pending Orders') return undefined;
     const subscription = supabase
       .channel('pending-orders-channel')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, async (payload) => {
@@ -297,14 +197,29 @@ export default function Admin() {
         if (newOrder.status === 'pending') {
           try {
             const apiUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, '') || '';
-            const response = await fetch(`${apiUrl}/api/orders/${newOrder.id}`, { cache: 'no-store' });
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            const orderDetails = await response.json();
-            setOrders((prevOrders) =>
-              [orderDetails, ...prevOrders].sort(
-                (a, b) => new Date(b.created_at) - new Date(a.created_at)
-              )
-            );
+            const maxRetries = 3;
+            let attempts = 0;
+            while (attempts < maxRetries) {
+              try {
+                const response = await fetch(`${apiUrl}/api/orders/${newOrder.id}`, { cache: 'no-store' });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const orderDetails = await response.json();
+                setOrders((prevOrders) => {
+                  const updatedOrders = [orderDetails, ...prevOrders];
+                  return updatedOrders.sort(
+                    (a, b) => new Date(b.created_at) - new Date(a.created_at)
+                  );
+                });
+                break;
+              } catch (err) {
+                attempts += 1;
+                if (attempts === maxRetries) {
+                  setError(`Failed to fetch new order after ${maxRetries} attempts: ${err.message}`);
+                  break;
+                }
+                await new Promise((resolve) => setTimeout(resolve, 1000 * attempts));
+              }
+            }
           } catch (err) {
             setError(`Failed to fetch new order: ${err.message}`);
           }
@@ -322,33 +237,6 @@ export default function Admin() {
       supabase.removeChannel(subscription);
     };
   }, [isLoggedIn, activeTab]);
-
-  // 🧠 Conditional render based on login state
-  if (isLoggedIn === null) return <p>Checking session...</p>;
-  if (!isLoggedIn) return <p>You must be logged in to view this page.</p>;
-
-  return (
-    <div>
-      <h1>Admin Dashboard</h1>
-      {error && <p style={{ color: 'red' }}>{error}</p>}
-      <div>
-        <button onClick={() => setActiveTab('Pending Orders')}>Pending Orders</button>
-        <button onClick={() => setActiveTab('Other')}>Other</button>
-      </div>
-      <div>
-        <h2>{activeTab}</h2>
-        <ul>
-          {orders.map((order) => (
-            <li key={order.id}>
-              Table {order.table_number} - Status: {order.status}
-            </li>
-          ))}
-        </ul>
-      </div>
-    </div>
-  );
-
-
 
   const fetchAnalytics = async () => {
     setIsLoadingAnalytics(true);
