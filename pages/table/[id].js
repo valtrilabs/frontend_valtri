@@ -19,6 +19,8 @@ export default function Table() {
   const [addedItems, setAddedItems] = useState({});
   const [isLocationValid, setIsLocationValid] = useState(null);
   const [locationError, setLocationError] = useState(null);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [confirmAction, setConfirmAction] = useState(null);
   const apiUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
 
   // Validate location on page load
@@ -151,7 +153,12 @@ export default function Table() {
 
   // Place new order
   const placeOrder = async () => {
-    if (cart.length === 0) return alert('Cart is empty');
+    if (cart.length === 0) {
+      setError('Your cart is empty. Add items to place an order.');
+      setShowConfirm(false);
+      setTimeout(() => setError(null), 5000);
+      return;
+    }
     try {
       setError(null);
       const position = await new Promise((resolve, reject) => {
@@ -179,16 +186,24 @@ export default function Table() {
       localStorage.setItem('orderId', order.id);
       setCart([]);
       setIsCartOpen(false);
+      setShowConfirm(false);
       router.replace(`/order/${order.id}`);
     } catch (err) {
       console.error('PlaceOrder error:', err.message);
       setError(err.message || `Failed to place order: ${err.message}`);
+      setShowConfirm(false);
+      setTimeout(() => setError(null), 5000);
     }
   };
 
   // Update existing order
   const updateOrder = async () => {
-    if (cart.length === 0) return alert('Cart is empty');
+    if (cart.length === 0) {
+      setError('Your cart is empty. Add items to update the order.');
+      setShowConfirm(false);
+      setTimeout(() => setError(null), 5000);
+      return;
+    }
     try {
       setError(null);
       console.log('UpdateOrder - API URL:', `${apiUrl}/api/orders/${appendOrderId}`);
@@ -210,11 +225,21 @@ export default function Table() {
       localStorage.setItem('orderId', order.id);
       setCart([]);
       setIsCartOpen(false);
+      setShowConfirm(false);
       router.replace(`/order/${order.id}`);
     } catch (err) {
       console.error('UpdateOrder error:', err.message);
       setError(`Failed to update order: ${err.message}`);
+      setShowConfirm(false);
+      setTimeout(() => setError(null), 5000);
     }
+  };
+
+  // Handle confirmation
+  const handleConfirm = (action) => {
+    setConfirmAction(() => action);
+    setShowConfirm(true);
+    setIsCartOpen(false);
   };
 
   // Toggle cart visibility
@@ -237,6 +262,43 @@ export default function Table() {
 
   return (
     <div className="min-h-screen bg-gray-50 p-4 relative">
+      {/* Confirmation Dialog */}
+      {showConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[100]" role="dialog">
+          <div className="bg-white p-6 rounded-lg shadow-lg max-w-sm w-full">
+            <h2 className="text-lg font-semibold text-gray-800 mb-4">
+              {isAppending ? 'Confirm Order Changes' : 'Confirm Order'}
+            </h2>
+            <p className="text-gray-700 mb-6">
+              {isAppending
+                ? `Save changes to order for Table ${id} with ${cart.length} items?`
+                : `Place order for Table ${id} with ${cart.length} items for ₹${cart
+                    .reduce((sum, item) => sum + item.price * (item.quantity || 1), 0)
+                    .toFixed(2)}?`}
+            </p>
+            <div className="flex gap-4">
+              <button
+                className="flex-1 bg-gray-300 text-gray-800 py-2 rounded-lg hover:bg-gray-400 transition-colors"
+                onClick={() => {
+                  setShowConfirm(false);
+                  setIsCartOpen(true);
+                }}
+                aria-label="Cancel order action"
+              >
+                Cancel
+              </button>
+              <button
+                className="flex-1 bg-blue-500 text-white py-2 rounded-lg hover:bg-blue-600 transition-colors"
+                onClick={confirmAction}
+                aria-label={isAppending ? 'Confirm save order changes' : 'Confirm place order'}
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Top-Right Cart Icon */}
       {cart.length > 0 && (
         <button
@@ -254,7 +316,7 @@ export default function Table() {
       {/* Welcome Message */}
       <div className="flex items-center justify-center gap-2 mb-6">
         <CakeIcon className="h-6 w-6 text-blue-500" />
-        <h1 className="text-2xl font-bold text-gray-800" aria-label="Welcome to Gsaheb Cafe">
+        <h1 className="text-2xl font-bold text-gray-800" aria-label="Welcome to Valtri Labs Cafe">
           Welcome to Valtri Labs Cafe
         </h1>
         <CakeIcon className="h-6 w-6 text-blue-500" />
@@ -325,7 +387,7 @@ export default function Table() {
       <BottomCart
         cart={cart}
         setCart={setCart}
-        onPlaceOrder={isAppending ? updateOrder : placeOrder}
+        onPlaceOrder={() => handleConfirm(isAppending ? updateOrder : placeOrder)}
         onClose={() => setIsCartOpen(false)}
         isOpen={isCartOpen}
       />
