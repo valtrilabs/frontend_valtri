@@ -5,12 +5,19 @@ export default function AdminLogin() {
   const router = useRouter();
 
   useEffect(() => {
-    // Check if coming from /admin to avoid redirect loop
-    const fromAdmin = router.query.from === 'admin';
-    if (!fromAdmin) {
-      // Redirect to /admin with a query parameter to prevent loop
-      router.replace('/admin?from=login');
+    // Check if we've recently redirected to prevent loop
+    const lastRedirect = localStorage.getItem('adminRedirect');
+    const now = Date.now();
+    const redirectTimeout = 1000; // 1 second timeout to reset redirect flag
+
+    if (lastRedirect && now - parseInt(lastRedirect) < redirectTimeout) {
+      // Loop detected, stay on /admin/login to avoid further redirects
+      return;
     }
+
+    // Set redirect flag and redirect to /admin
+    localStorage.setItem('adminRedirect', now.toString());
+    router.replace('/admin');
   }, [router]);
 
   return (
